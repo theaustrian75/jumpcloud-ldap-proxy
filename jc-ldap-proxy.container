@@ -1,0 +1,32 @@
+# /etc/containers/systemd/jc-ldap-proxy.container
+# Quadlet unit — after editing: systemctl daemon-reload && systemctl start jc-ldap-proxy
+[Unit]
+Description=JumpCloud LDAP caching proxy for QNAP
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=registry.klausk.xyz:8443/repositories/dragonsnest/ldap-proxy:latest
+ContainerName=jc-ldap-proxy
+Environment=JC_ORG_ID=CHANGE_ME
+Environment=SLAPD_LOGLEVEL=stats
+# Uncomment if a remote client must reach this proxy (IP or ip%netmask)
+#Environment=ALLOWED_CLIENT_IP=192.168.1.50
+PublishPort=636:636
+PublishPort=389:389
+# Server cert/key for the LDAPS listener, issued by your lab CA
+# (SAN must match the name/IP the QNAP will use)
+Volume=/srv/jc-ldap-proxy/certs:/certs:ro,Z
+# Cache lives on tmpfs: cached NTLM hashes and bind credentials never
+# touch disk. Cost: cache starts cold after each restart (first lookups
+# pay one WAN round-trip again).
+Tmpfs=/var/lib/ldap/pcache:rw,size=256m,uid=100,gid=101,mode=0700
+StopTimeout=15
+HealthOnFailure=restart
+
+[Service]
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

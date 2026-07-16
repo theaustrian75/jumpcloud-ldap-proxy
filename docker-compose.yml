@@ -1,0 +1,66 @@
+# JumpCloud LDAP caching proxy — QNAP Container Station (Docker) deployment.
+#
+# QTS integration requires BOTH published ports, loopback-bound so nothing
+# on the LAN can reach the proxy:
+#   636 (LDAPS)          — what the QTS Domain Security panel connects to
+#                          (set server 127.0.0.1, port 636, LDAPS there)
+#   389 (LDAP+STARTTLS)  — what QTS's generated backend configs (Samba
+#                          ldapsam, nss LDAP) use regardless of the panel
+#                          setting; these components feed the Domain
+#                          Users/Groups tables
+# If QTS must dial a non-loopback address instead, publish both ports on
+# the NAS LAN IP and rely on the slapd peername ACL / host firewall.
+
+name: jc-ldap-proxy
+
+services:
+  jc-ldap-proxy:
+    # Default: pull the multi-arch image built and pushed by the registry
+    # build script (docker login registry.klausk.xyz:8443 once, if pulls
+    # ever require auth).
+    image: registry.klausk.xyz:8443/repositories/dragonsnest/ldap-proxy:latest
+    # To build locally on the QNAP instead, uncomment:
+    #build:
+    #  context: .
+    #  dockerfile: Dockerfile.ldap-proxy
+    container_name: jc-ldap-proxy
+    environment:
+      # Interpolated from the .env file next to this compose file
+      JC_ORG_ID: ${JC_ORG_ID:?Set JC_ORG_ID in .env}
+      # 'stats' logs every search (for pcache template tuning);
+      # switch to 'none' afterwards and `docker compose up -d` again.
+      SLAPD_LOGLEVEL: ${SLAPD_LOGLEVEL:-stats}
+      # Optional: extra allowed client (IP or ip%netmask) for the case where
+      # the proxy serves a consumer on ANOTHER host. Unset = loopback no-op,
+      # correct for the QNAP-local deployment.
+      ALLOWED_CLIENT_IP: ${ALLOWED_CLIENT_IP:-127.0.0.1}
+    ports:
+      - "127.0.0.1:636:636"
+      - "127.0.0.1:389:389"
+    restart: unless-stopped
+    volumes:
+      # Server cert/key for TLS (LDAPS on 636, STARTTLS on 389). The QTS
+      # panel validates the cert, so the SAN must cover what it dials
+      # (IP:127.0.0.1); the nss path runs with tls_checkpeer no.
+      - /share/Container/jc-ldap-proxy/certs:/certs:ro
+    networks:
+      - net-ldap-proxy
+    tmpfs:
+      # Cached hashes stay off disk. uid/gid/mode: the tmpfs is created at
+      # container start and shadows the image directory, so ownership must
+      # be set here — slapd runs as the image's ldap user (uid 100, gid 101)
+      # and cannot write a root-owned mount.
+      - /var/lib/ldap/pcache:rw,size=256m,uid=100,gid=101,mode=0700
+
+networks:
+  net-ldap-proxy:
+    # Explicit name so Docker uses it verbatim instead of prefixing the
+    # compose project name.
+    name: net-ldap-proxy
+    driver: bridge
+    # Pin the subnet inside 172.16.0.0/12 so the slapd peername ACL
+    # (which allows that range for bridge-NATed QTS connections) is
+    # guaranteed to match regardless of Container Station's address pool.
+    ipam:
+      config:
+        - subnet: 172.28.53.0/24

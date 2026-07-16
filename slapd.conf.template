@@ -1,0 +1,141 @@
+# slapd.conf — JumpCloud LDAP caching proxy for QNAP
+# back-ldap (proxy) + pcache (query cache) on OpenLDAP 2.6
+#
+# REPLACE BEFORE USE:
+#   @@JC_ORG_ID@@     -> your JumpCloud org ID (from the JC admin console, LDAP settings)
+#   192.168.1.50    -> your QNAP's IP
+
+include         /etc/openldap/schema/core.schema
+include         /etc/openldap/schema/cosine.schema
+include         /etc/openldap/schema/inetorgperson.schema
+include         /etc/openldap/schema/nis.schema
+include         /etc/openldap/schema/samba.schema
+include         /etc/openldap/schema/jumpcloud.schema
+
+pidfile         /run/openldap/slapd.pid
+argsfile        /run/openldap/slapd.args
+
+modulepath      /usr/lib/openldap
+moduleload      back_ldap.so
+moduleload      back_mdb.so
+moduleload      pcache.so
+
+# 'stats' logs each search with its filter — needed once to discover the exact
+# filter shapes QTS sends (see pcacheTemplate below). Drop to 'none' afterwards.
+loglevel        stats
+
+# TLS for the LDAPS listener (mount your lab-CA-issued cert here)
+TLSCertificateFile      /certs/proxy.crt
+TLSCertificateKeyFile   /certs/proxy.key
+TLSProtocolMin          3.3
+
+# Anonymous access is allowed ONLY for rootDSE base reads from loopback
+# (container healthcheck). The JumpCloud tree itself requires an
+# authenticated bind — see 'require authc' in the database section.
+access to dn.base=""
+        by peername.ip=127.0.0.1 read
+        by * none
+
+#-----------------------------------------------------------------------
+# Proxy database: everything under the JumpCloud suffix is forwarded
+# to ldap.jumpcloud.com, with binds passed through per-connection.
+#-----------------------------------------------------------------------
+database        ldap
+suffix          "o=@@JC_ORG_ID@@,dc=jumpcloud,dc=com"
+# pcache needs a rootdn identity on this database to manage the cache.
+# No rootpw is set, so nothing can actually bind as this DN.
+rootdn          "cn=pcache-internal,o=@@JC_ORG_ID@@,dc=jumpcloud,dc=com"
+uri             "ldaps://ldap.jumpcloud.com:636"
+protocol-version 3
+rebind-as-user  yes
+chase-referrals no
+network-timeout 10
+idle-timeout    300
+single-conn     no
+# Fail fast when JumpCloud is unreachable instead of blocking clients
+# (observed: 115s hanging binds during a DNS outage). network-timeout
+# bounds connect(); timeout bounds each proxied operation.
+network-timeout 10
+timeout         15
+# Anonymous operations are deliberately passed through to JumpCloud, which
+# rejects them itself (err=32) — byte- and error-code-identical to a direct
+# connection. QTS's backend sync depends on exactly this behavior; do not
+# add 'require authc' or idassert here (both broke QTS ingestion).
+
+# Who may use the proxy. Source IP depends on how it's deployed:
+#  - 127.0.0.1: in-container healthcheck (always required)
+#  - 172.16.0.0/12: Docker bridge networking on the QNAP — QTS connecting to
+#    the published port arrives NATed from the bridge gateway, not as
+#    127.0.0.1 or the NAS LAN IP
+#  - ALLOWED_CLIENT_IP env (default 127.0.0.1 = no-op): a remote client's
+#    LAN IP if the proxy runs on a different host than its consumer
+#    (remote clients keep their real source through Docker/Podman DNAT).
+#    Accepts a single IP or OpenLDAP ip%netmask form, e.g.
+#    192.168.1.50 or 192.168.1.0%255.255.255.0
+access to *
+        by peername.ip=127.0.0.1 read
+        by peername.ip=172.16.0.0%255.240.0.0 read
+        by peername.ip=@@ALLOWED_CLIENT_IP@@ read
+        by * none
+
+#-----------------------------------------------------------------------
+# Query cache: answers repeat searches from a local MDB store.
+# pcache <db-type> <max-cached-entries> <numattrsets> <entries-per-query-limit> <consistency-check-secs>
+#-----------------------------------------------------------------------
+overlay         pcache
+pcache          mdb 20000 1 500 120
+
+# Attribute set 0: explicit superset of every attribute in the directory.
+# Explicit (not '*') because pcache rewrites upstream fetches to retrieve
+# the full attrset, making attribute-projected queries (nslcd requests
+# specific attrs) cacheable; with '*' such queries are answerable but
+# never POPULATE the cache (observed: nss shapes at 100%% miss). Must stay
+# a superset of what clients request: narrower lists make requests
+# uncacheable outright (observed: 2%% hit ratio). Update if JumpCloud
+# grows new attributes (verify-proxy.sh section 5 will show it).
+pcacheAttrset   0 objectClass uid userPassword uidNumber gidNumber cn sn givenName displayName initials mail gecos homeDirectory loginShell description memberUid member uniqueMember memberOf company sshKey departmentNumber jcLdapAdmin jcSambaAdmin employeeNumber employeeType title ou shadowLastChange shadowMin shadowMax shadowWarning shadowInactive shadowExpire shadowFlag sambaSID sambaNTPassword sambaLMPassword sambaAcctFlags sambaPwdLastSet sambaPwdCanChange sambaPwdMustChange sambaLogonTime sambaLogoffTime sambaKickoffTime sambaPrimaryGroupSID sambaDomainName sambaHomePath sambaHomeDrive sambaLogonScript sambaProfilePath sambaUserWorkstations sambaBadPasswordCount sambaBadPasswordTime sambaLogonHours sambaMungedDial sambaPasswordHistory sambaGroupType sambaSIDList sambaNextRid sambaNextGroupRid sambaNextUserRid sambaAlgorithmicRidBase sambaMinPwdLength sambaPwdHistoryLength sambaLogonToChgPwd sambaMaxPwdAge sambaMinPwdAge sambaLockoutDuration sambaLockoutObservationWindow sambaLockoutThreshold sambaForceLogoff sambaRefuseMachinePwdChange modifyTimestamp
+
+# Filter templates: a query is cacheable only if its filter matches one of
+# these shapes (values stripped). Positive TTL 900s, negative TTL 120s.
+# Run one QNAP login with loglevel stats, read the SRCH filters from the log,
+# and add/adjust templates to match what QTS actually sends.
+pcacheTemplate  (uid=) 0 900 120
+pcacheTemplate  (&(uid=)(objectClass=)) 0 900 120
+pcacheTemplate  (&(objectClass=)(uid=)) 0 900 120
+pcacheTemplate  (cn=) 0 900 120
+pcacheTemplate  (&(objectClass=)(cn=)) 0 900 120
+pcacheTemplate  (gidNumber=) 0 900 120
+pcacheTemplate  (&(objectClass=)(gidNumber=)) 0 900 120
+pcacheTemplate  (memberUid=) 0 900 120
+pcacheTemplate  (&(objectClass=)(memberUid=)) 0 900 120
+pcacheTemplate  (&(objectClass=)(sambaSID=)) 0 900 120
+pcacheTemplate  (uidNumber=) 0 900 120
+pcacheTemplate  (&(objectClass=)(uidNumber=)) 0 900 120
+# QTS re-runs a full (objectClass=*) enumeration every ~30s; caching it
+# turns the constant sync churn into local answers. Trade-off: directory
+# changes (new/removed JumpCloud users) take up to the TTL to appear.
+pcacheTemplate  (objectClass=*) 0 300 60
+# Observed in production (verify-proxy.sh section 5, 100%-miss shapes):
+# nss class enumerations, Samba SID lookups in reversed operand order
+# (template matching is structural — both orders needed), smbd's domain
+# entry lookup, and the QTS search-box OR-filter.
+pcacheTemplate  (objectClass=) 0 300 60
+pcacheTemplate  (&(sambaSID=)(objectClass=)) 0 900 120
+pcacheTemplate  (&(objectClass=)(sambaDomainName=)) 0 900 120
+pcacheTemplate  (&(objectClass=)(|(displayName=)(cn=))) 0 900 120
+
+# NOTE: pcacheBind was removed deliberately. It conflicts with
+# rebind-as-user: a bind answered from the local cache leaves back-ldap
+# without credentials, so the next cache-miss operation on that connection
+# fails with err=52 "cannot rebind without creds" whenever the upstream
+# connection was idle-closed in between (observed in production against
+# JumpCloud). Binds therefore always go upstream; SMB auth resilience is
+# preserved anyway because per-user auth is cached hash *searches*, not
+# binds.
+
+# Cache database (MDB) settings
+directory       /var/lib/ldap/pcache
+maxsize         268435456
+index           objectClass eq
+index           uid,cn,memberUid,gidNumber,uidNumber eq
+index           pcacheQueryID eq

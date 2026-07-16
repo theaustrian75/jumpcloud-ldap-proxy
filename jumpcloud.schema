@@ -1,0 +1,71 @@
+# JumpCloud custom schema elements for the caching proxy.
+# Without these, slapd passes unknown attributes/classes through UPPERCASED
+# (spec-legal but breaks case-sensitive clients like QTS) and pcache cannot
+# store entries carrying unknown objectClass values.
+#
+# memberOf / company use their well-known Microsoft OIDs; sshKey and the
+# JumpCloud objectClasses use a local experimental arc (names are what LDAP
+# matches on; the OIDs only need to be internally consistent here).
+
+attributetype ( 1.2.840.113556.1.2.102
+    NAME 'memberOf'
+    DESC 'Group membership'
+    EQUALITY distinguishedNameMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.12 )
+
+attributetype ( 1.2.840.113556.1.2.146
+    NAME 'company'
+    DESC 'Company'
+    EQUALITY caseIgnoreMatch
+    SUBSTR caseIgnoreSubstringsMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )
+
+attributetype ( 1.3.6.1.4.1.99999.1.1.1
+    NAME 'sshKey'
+    DESC 'JumpCloud SSH public key'
+    EQUALITY caseExactMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )
+
+attributetype ( 1.3.6.1.4.1.99999.1.1.2
+    NAME 'jcLdapAdmin'
+    DESC 'JumpCloud LDAP admin flag'
+    EQUALITY booleanMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.7 SINGLE-VALUE )
+
+attributetype ( 1.3.6.1.4.1.99999.1.1.3
+    NAME 'jcSambaAdmin'
+    DESC 'JumpCloud Samba admin flag'
+    EQUALITY booleanMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.7 SINGLE-VALUE )
+
+# The following three only appear when specific attributes are requested;
+# casing is best-effort (they are JumpCloud-internal and not consumed by QTS)
+attributetype ( 1.3.6.1.4.1.99999.1.1.4
+    NAME 'encNTPassword'
+    DESC 'JumpCloud encrypted NT password blob'
+    EQUALITY caseExactMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )
+
+attributetype ( 1.3.6.1.4.1.99999.1.1.5
+    NAME 'ntPasswordSHA'
+    DESC 'JumpCloud NT password digest'
+    EQUALITY caseExactMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )
+
+attributetype ( 1.3.6.1.4.1.99999.1.1.6
+    NAME 'keynHash'
+    DESC 'JumpCloud key hash'
+    EQUALITY caseExactMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )
+
+objectclass ( 1.3.6.1.4.1.99999.1.2.1
+    NAME 'jumpcloudUser'
+    DESC 'JumpCloud user'
+    SUP top AUXILIARY
+    MAY ( company $ memberOf $ sshKey $ jcLdapAdmin $ jcSambaAdmin ) )
+
+objectclass ( 1.3.6.1.4.1.99999.1.2.2
+    NAME 'ntPasswordEncryption'
+    DESC 'JumpCloud NT password encryption marker'
+    SUP top AUXILIARY
+    MAY ( encNTPassword $ ntPasswordSHA $ keynHash ) )

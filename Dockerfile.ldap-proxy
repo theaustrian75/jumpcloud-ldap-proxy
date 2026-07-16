@@ -1,0 +1,41 @@
+# JumpCloud LDAP caching proxy (OpenLDAP back-ldap + pcache)
+# Alpine 3.22 ships slapd 2.6.8 — this config was functionally validated
+# against it (cache hit ratio, offline cached binds, wrong-password rejection).
+FROM alpine:3.22
+
+RUN apk add --no-cache \
+        openldap \
+        openldap-back-ldap \
+        openldap-back-mdb \
+        openldap-overlay-proxycache \
+        openldap-clients \
+        ca-certificates && \
+    # Upstream LDAPS validation: JumpCloud uses a public CA
+    printf 'TLS_CACERT /etc/ssl/certs/ca-certificates.crt\nTLS_REQCERT demand\n' >> /etc/openldap/ldap.conf && \
+    mkdir -p /var/lib/ldap/pcache /run/openldap /certs && \
+    chown -R ldap:ldap /var/lib/ldap /run/openldap
+
+COPY conf/samba.schema         /etc/openldap/schema/samba.schema
+COPY conf/jumpcloud.schema     /etc/openldap/schema/jumpcloud.schema
+COPY conf/slapd.conf.template  /etc/openldap/slapd.conf.template
+COPY entrypoint.sh             /entrypoint.sh
+# Build-time syntax check of the template with a dummy org ID.
+# chmod: never trust the exec bit to survive transport of the source file.
+RUN chmod 755 /entrypoint.sh && \
+    chown ldap:ldap /etc/openldap/slapd.conf.template && chmod 600 /etc/openldap/slapd.conf.template && \
+    sed 's/@@JC_ORG_ID@@/buildcheck/g' /etc/openldap/slapd.conf.template > /tmp/build-check.conf && \
+    slaptest -f /tmp/build-check.conf -u && rm /tmp/build-check.conf
+
+EXPOSE 389 636
+
+# Anonymous rootDSE base read from loopback — allowed by a dedicated ACL,
+# needs no credentials, and answers whether slapd is up and serving LDAPS.
+# Deliberately does NOT test upstream reachability: a dead WAN with a warm
+# cache is the proxy doing its job, not an unhealthy container.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD env LDAPTLS_REQCERT=never ldapsearch -x -H ldaps://127.0.0.1 -s base -b "" namingContexts >/dev/null || exit 1
+
+USER ldap
+# entrypoint renders /run/openldap/slapd.conf from the template using
+# JC_ORG_ID (required) and starts slapd with SLAPD_LOGLEVEL (default: stats).
+ENTRYPOINT ["/entrypoint.sh"]
