@@ -15,15 +15,18 @@ RUN apk add --no-cache \
     mkdir -p /var/lib/ldap/pcache /run/openldap /certs && \
     chown -R ldap:ldap /var/lib/ldap /run/openldap
 
-COPY conf/samba.schema         /etc/openldap/schema/samba.schema
-COPY conf/jumpcloud.schema     /etc/openldap/schema/jumpcloud.schema
-COPY conf/slapd.conf.template  /etc/openldap/slapd.conf.template
+COPY conf/samba.schema        /etc/openldap/schema/samba.schema
+COPY conf/jumpcloud.schema    /etc/openldap/schema/jumpcloud.schema
+COPY conf/slapd.conf.template /etc/openldap/slapd.conf.template
 COPY entrypoint.sh             /entrypoint.sh
-# Build-time syntax check of the template with a dummy org ID.
+# Build-time syntax check using the same substitutions as the entrypoint.
 # chmod: never trust the exec bit to survive transport of the source file.
 RUN chmod 755 /entrypoint.sh && \
     chown ldap:ldap /etc/openldap/slapd.conf.template && chmod 600 /etc/openldap/slapd.conf.template && \
-    sed 's/@@JC_ORG_ID@@/buildcheck/g' /etc/openldap/slapd.conf.template > /tmp/build-check.conf && \
+    sed -e 's/@@JC_ORG_ID@@/buildcheck/g' \
+        -e 's/@@JC_CACHE_READER_UID@@/cache-reader/g' \
+        -e 's/@@ALLOWED_CLIENT_IP@@/127.0.0.1/g' \
+        /etc/openldap/slapd.conf.template > /tmp/build-check.conf && \
     slaptest -f /tmp/build-check.conf -u && rm /tmp/build-check.conf
 
 EXPOSE 389 636
@@ -37,5 +40,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 USER ldap
 # entrypoint renders /run/openldap/slapd.conf from the template using
-# JC_ORG_ID (required) and starts slapd with SLAPD_LOGLEVEL (default: stats).
+# JC_ORG_ID and JC_CACHE_READER_UID, then starts slapd with SLAPD_LOGLEVEL.
 ENTRYPOINT ["/entrypoint.sh"]

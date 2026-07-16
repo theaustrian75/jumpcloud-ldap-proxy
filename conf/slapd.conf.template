@@ -72,6 +72,21 @@ timeout         15
 #    (remote clients keep their real source through Docker/Podman DNAT).
 #    Accepts a single IP or OpenLDAP ip%netmask form, e.g.
 #    192.168.1.50 or 192.168.1.0%255.255.255.0
+#
+# pcache is shared across LDAP identities, so the remote server's per-user
+# authorization cannot be trusted for cached results. Password and hash
+# attributes are therefore readable only by the designated QTS cache-reader
+# bind DN, and only from the same allowed source networks. The auth grants
+# permit password verification without granting search/read access.
+access to attrs=userPassword,sambaNTPassword,sambaLMPassword,sambaPasswordHistory,sambaClearTextPassword,sambaPreviousClearTextPassword,encNTPassword,ntPasswordSHA,keynHash
+        by dn.exact="uid=@@JC_CACHE_READER_UID@@,ou=Users,o=@@JC_ORG_ID@@,dc=jumpcloud,dc=com" peername.ip=127.0.0.1 read
+        by dn.exact="uid=@@JC_CACHE_READER_UID@@,ou=Users,o=@@JC_ORG_ID@@,dc=jumpcloud,dc=com" peername.ip=172.16.0.0%255.240.0.0 read
+        by dn.exact="uid=@@JC_CACHE_READER_UID@@,ou=Users,o=@@JC_ORG_ID@@,dc=jumpcloud,dc=com" peername.ip=@@ALLOWED_CLIENT_IP@@ read
+        by anonymous peername.ip=127.0.0.1 auth
+        by anonymous peername.ip=172.16.0.0%255.240.0.0 auth
+        by anonymous peername.ip=@@ALLOWED_CLIENT_IP@@ auth
+        by * none
+
 access to *
         by peername.ip=127.0.0.1 read
         by peername.ip=172.16.0.0%255.240.0.0 read

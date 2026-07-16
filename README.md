@@ -10,19 +10,20 @@ upstream.
 
 Validated behavior (slapd 2.6.8 on Alpine 3.22 (musl) and 2.6.10 on Ubuntu 24.04):
 - 5 identical queries to the proxy -> exactly 1 reached upstream
-- with upstream unreachable: cached bind + cached searches succeed,
-  wrong passwords are still rejected
+- with upstream unreachable, already-bound connections can continue using
+  cached searches; new binds fail because binds are never cached
 
 ## Deploy
 
-1. `cp .env.example .env` and set `JC_ORG_ID` (JumpCloud console -> LDAP;
-   the o=<id> component of your base DN). The entrypoint renders slapd.conf
-   from `conf/slapd.conf.template` at container start and refuses to start
-   without a valid org ID. If the proxy will ever serve a client on another
-   host, set `ALLOWED_CLIENT_IP` in `.env` (single IPv4 or ip%netmask form);
-   unset, it defaults to a harmless loopback duplicate. Both variables are
-   validated at startup and the ACL was verified with slapacl (configured
-   source allowed, neighboring IP denied, injection input refused).
+1. `cp .env.example .env`, set `JC_ORG_ID` (JumpCloud console -> LDAP;
+   the o=<id> component of your base DN), and set `JC_CACHE_READER_UID` to
+   the UID of the JumpCloud account configured as QTS's LDAP bind user.
+   Only that exact bind identity may read cached password/hash attributes.
+   The entrypoint renders slapd.conf from `conf/slapd.conf.template` and
+   refuses to start without both values. If the proxy will ever serve a
+   client on another host, set `ALLOWED_CLIENT_IP` in `.env` (single IPv4
+   or ip%netmask form); unset, it defaults to a harmless loopback duplicate.
+   All substituted values are validated at startup.
 2. Put a lab-CA-issued cert/key at `/srv/jc-ldap-proxy/certs/proxy.{crt,key}`
    on the host. The SAN must match whatever name/IP you give the QNAP.
    Make readable by the container's ldap user (uid 100 in the image, or
@@ -51,11 +52,11 @@ Validated behavior (slapd 2.6.8 on Alpine 3.22 (musl) and 2.6.10 on Ubuntu 24.04
 5. Point QTS at it: Control Panel -> Domain Security -> LDAP
    authentication, server host "localhost", LDAP security
    "ldap://(ldap+TLS)" — i.e. STARTTLS on port 389. This is the VERIFIED
-   working configuration. Do NOT use the LDAPS/636 option in the panel:
-   QTS generates backend configs (Samba ldapsam, nss LDAP) that speak
-   plain LDAP + STARTTLS, and mixing panel-LDAPS with backend-STARTTLS
-   produces components spraying plaintext at the TLS port ("wrong version
-   number" errors) and empty Domain Users/Groups lists. Base DN and the
+   working configuration. Pure LDAPS on port 636 did not work with QTS,
+   most likely because QTS-generated Samba (and possibly nss LDAP) backend
+   configuration still uses plain LDAP + STARTTLS. Selecting LDAPS in the
+   panel therefore produced "wrong version number" errors and empty Domain
+   Users/Groups lists. Base DN and the
    Users/Groups base DNs as for direct JumpCloud; One-Level scope matches
    JumpCloud's flat ou=Users layout. Both proxy ports are published
    loopback-only; 636/LDAPS remains available for admin ldapsearch use.
@@ -88,28 +89,34 @@ The config ships with the shapes QTS/Samba typically sends, but verify:
 ## Authentication
 
 Authenticated clients are handled by pass-through: their own bind is
-forwarded to JumpCloud, and their operations run under it. Anonymous
-operations are ALSO passed through (default mode, no credentials
-configured): JumpCloud rejects them itself with err=32, making the proxy
-error-code-identical to a direct JumpCloud connection. This exactness
-matters: QTS runs a two-pass sync where the anonymous probe must fail
-precisely the way JumpCloud fails it (err=32); both locally refusing it
-(err=53) and making it succeed (idassert) were observed to break QTS
-Domain Users/Groups ingestion. The proxy holds no credentials of any
-kind — there is no bind DN or secret in .env, the compose file, or the
-image. QTS keeps its existing JumpCloud bind DN and password; every
-bind is forwarded to JumpCloud per connection (back-ldap
-`rebind-as-user`), and that connection's searches — including the per-user
-Samba hash fetches the cache accelerates — run under that forwarded
-identity. The proxy never contacts JumpCloud anonymously: the only
-anonymous operation it accepts (the loopback rootDSE healthcheck) is
-answered locally by slapd and generates zero upstream operations
-(verified: 3 healthcheck queries, 0 upstream ops).
+forwarded to JumpCloud, and their operations run under it. QTS keeps its
+existing JumpCloud bind DN and password; the proxy stores only its UID in
+`JC_CACHE_READER_UID`, not the password. Every bind is forwarded to
+JumpCloud per connection (`rebind-as-user`).
 
-Verified auth semantics (all tested against a live slapd):
-- Anonymous access is limited to rootDSE base reads from loopback (the
-  healthcheck); any operation on the JumpCloud tree without an
-  authenticated bind is refused.
+OpenLDAP's pcache is shared across identities and cannot reproduce
+JumpCloud's per-identity authorization for cached results. To prevent a
+result populated by QTS's privileged bind from disclosing credential
+material to another identity, the local ACL permits `userPassword`, Samba
+password/hash attributes, and JumpCloud password blobs only when both:
+
+- the bound DN exactly matches
+  `uid=$JC_CACHE_READER_UID,ou=Users,o=$JC_ORG_ID,dc=jumpcloud,dc=com`; and
+- the connection comes from one of the configured source networks.
+
+All other identities receive no read access to those sensitive attributes,
+including on cache hits. Non-sensitive cached directory attributes remain
+shared inside the source-IP trust boundary, so this proxy is intended for a
+single trusted QTS consumer rather than arbitrary multi-tenant LDAP clients.
+
+Anonymous cache misses are passed through to JumpCloud, which rejects them
+with err=32. This behavior is retained because locally refusing the QTS
+anonymous probe (err=53) or using idassert was observed to break Domain
+Users/Groups ingestion.
+
+Expected auth semantics (re-test after changing `JC_CACHE_READER_UID`):
+- Anonymous and non-reader identities cannot read cached password/hash
+  attributes. Anonymous cache misses are still rejected by JumpCloud.
 - While JumpCloud is reachable, it is authoritative: a password changed
   there takes effect through the proxy immediately, and the old password
   is rejected at once — the bind cache never overrides a live upstream.
@@ -117,9 +124,10 @@ Verified auth semantics (all tested against a live slapd):
   answered from cache — a cached bind leaves the proxy without upstream
   credentials and breaks later operations). Already-bound connections keep
   working for cached searches, which covers SMB per-user auth.
-- TLS on both legs: clients speak LDAPS to the proxy (your lab CA), the
-  proxy speaks LDAPS to ldap.jumpcloud.com with certificate validation
-  required (public CA bundle, TLS_REQCERT demand).
+- TLS on both legs: QTS uses LDAP + STARTTLS on port 389 to the proxy
+  (your lab CA); the proxy uses LDAPS to ldap.jumpcloud.com with certificate
+  validation required (public CA bundle, TLS_REQCERT demand). Port 636
+  remains available for administrative clients that use pure LDAPS.
 
 ## Healthcheck
 
@@ -134,11 +142,12 @@ Quadlet, `HealthOnFailure=restart` in the unit restarts on failure.
 ## Where to run it
 
 On the QNAP itself (Container Station / Docker) is the recommended
-placement — see docker-compose.yml. With host networking, QTS points at
-127.0.0.1:636: auth traffic never leaves the NAS, the proxy shares the
-NAS's failure domain (if the NAS is up, its auth path is up), and the
-peername ACL simplifies to loopback only. Any always-on Podman host works
-too via the Quadlet unit; that adds one cross-host dependency for NAS auth.
+placement — see docker-compose.yml. The compose deployment publishes both
+ports on loopback; QTS points at localhost and uses STARTTLS on port 389,
+so auth traffic never leaves the NAS. The proxy shares the NAS's failure
+domain (if the NAS is up, its auth path is up). Any always-on Podman host
+works too via the Quadlet unit; that adds one cross-host dependency for
+NAS auth.
 
 ## Operational notes
 
