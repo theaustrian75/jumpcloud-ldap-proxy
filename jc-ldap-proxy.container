@@ -7,7 +7,7 @@ Wants=network-online.target
 
 [Container]
 # Replace with an immutable release tag or manifest digest before installing.
-Image=registry.klausk.xyz:8443/repositories/dragonsnest/ldap-proxy@sha256:REPLACE_WITH_MANIFEST_DIGEST
+Image=ghcr.io/theaustrian75/jumpcloud-ldap-proxy@sha256:REPLACE_WITH_MANIFEST_DIGEST
 ContainerName=jc-ldap-proxy
 Environment=JC_ORG_ID=CHANGE_ME
 # UID of the JumpCloud account configured as QTS's LDAP bind user

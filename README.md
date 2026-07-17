@@ -32,21 +32,23 @@ Validated behavior (slapd 2.6.8 on Alpine 3.22 (musl) and 2.6.10 on Ubuntu 24.04
    container's ldap user (uid 100 in the image, or `chmod 640` plus ownership
    via `podman unshare`). Startup now reports a direct missing/unreadable-file
    error if the mount or permissions are wrong.
-3. Build and push (the build file is Dockerfile.ldap-proxy, fitting a
-   `for Dockerfile.*` multi-image build script; multi-arch builds of the
-   non-native platform need qemu-user-static on the build host):
+3. GitHub Actions builds `linux/amd64` and `linux/arm64` images on native
+   runners, publishes them to
+   `ghcr.io/theaustrian75/jumpcloud-ldap-proxy`, and creates a multi-arch
+   manifest. Pushes to `main` publish `main`, `sha-*`, and `latest`; a `v*`
+   tag additionally publishes that release tag. Pull requests build both
+   architectures without publishing.
 
-       IMAGE=<registry>/ldap-proxy:2026.07.1
-       podman build --platform linux/amd64,linux/arm64 \
-         --manifest "$IMAGE" -f Dockerfile.ldap-proxy .
-       podman manifest push --all "$IMAGE"
+   Use a release/commit tag to discover the resulting manifest digest, then
+   put the immutable `ghcr.io/...@sha256:...` reference in `.env` and replace
+   the `Image=` placeholder in the Quadlet unit. If the GHCR package is
+   private, authenticate the QNAP once with a token that has `read:packages`:
 
-   Use a unique release tag for every build, or resolve the pushed manifest
-   to `image@sha256:...`; never reuse a production tag. Put that reference in
-   `.env` and replace the `Image=` placeholder in the Quadlet unit. On the
-   QNAP: `docker login <registry>` once, then
-   `docker compose up -d` (compose pulls the image). For Podman hosts,
-   install jc-ldap-proxy.container as a Quadlet unit instead.
+       echo "$GHCR_TOKEN" | docker login ghcr.io -u theaustrian75 --password-stdin
+       docker compose up -d
+
+   For Podman hosts, install `jc-ldap-proxy.container` as a Quadlet unit
+   instead.
 
 4. Smoke test from the host (expect your JumpCloud entries back):
 
@@ -197,11 +199,12 @@ the host firewall.
 
 ## Automated checks
 
-GitHub Actions runs ShellCheck, builds the image, validates startup failures,
-starts the image with the production hardening constraints, and exercises a
-`slapacl` matrix. The ACL regression confirms reader-DN plus source-network
-requirements for sensitive attributes and preserves QTS's anonymous
-non-sensitive lookup behavior.
+GitHub Actions runs ShellCheck, validates startup failures, starts the image
+with the production hardening constraints, and exercises a `slapacl` matrix.
+After validation, native AMD64 and ARM64 runners build architecture-specific
+GHCR images and a final job merges them into one multi-arch manifest. The ACL
+regression confirms reader-DN plus source-network requirements for sensitive
+attributes and preserves QTS's anonymous non-sensitive lookup behavior.
 
 ## Measured performance (production baseline, 2026-07)
 
