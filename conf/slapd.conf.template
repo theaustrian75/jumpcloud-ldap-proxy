@@ -5,6 +5,7 @@
 #   @@JC_ORG_ID@@          -> JumpCloud org ID
 #   @@JC_CACHE_READER_UID@@ -> QTS LDAP bind user's UID
 #   @@ALLOWED_CLIENT_IP@@   -> optional remote client IP/network
+#   @@SLAPD_LOGLEVEL@@      -> stats or none
 
 include         /etc/openldap/schema/core.schema
 include         /etc/openldap/schema/cosine.schema
@@ -20,6 +21,10 @@ modulepath      /usr/lib/openldap
 moduleload      back_ldap.so
 moduleload      back_mdb.so
 moduleload      pcache.so
+
+# 'stats' logs each search with its filter — needed once to discover the exact
+# filter shapes QTS sends (see pcacheTemplate below). Drop to 'none' afterwards.
+loglevel        @@SLAPD_LOGLEVEL@@
 
 # TLS for the LDAPS listener (mount your lab-CA-issued cert here)
 TLSCertificateFile      /certs/proxy.crt

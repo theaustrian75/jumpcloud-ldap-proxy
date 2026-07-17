@@ -12,8 +12,10 @@ CONFIG=/tmp/slapd-test.conf
 sed -e "s/@@JC_ORG_ID@@/$ORG_ID/g" \
     -e "s/@@JC_CACHE_READER_UID@@/$READER_UID/g" \
     -e "s/@@ALLOWED_CLIENT_IP@@/192.0.2.10/g" \
+    -e "s/@@SLAPD_LOGLEVEL@@/none/g" \
     /etc/openldap/slapd.conf.template > "$CONFIG"
 
+grep -q '^loglevel[[:space:]]*none$' "$CONFIG"
 slaptest -f "$CONFIG" -u >/dev/null
 
 assert_access() {

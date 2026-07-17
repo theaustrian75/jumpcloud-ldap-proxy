@@ -43,6 +43,7 @@ done
 sed -e "s/@@JC_ORG_ID@@/${JC_ORG_ID}/g" \
     -e "s/@@JC_CACHE_READER_UID@@/${JC_CACHE_READER_UID}/g" \
     -e "s/@@ALLOWED_CLIENT_IP@@/${ALLOWED_CLIENT_IP}/g" \
+    -e "s/@@SLAPD_LOGLEVEL@@/${SLAPD_LOGLEVEL}/g" \
     /etc/openldap/slapd.conf.template > /run/openldap/slapd.conf
 chmod 600 /run/openldap/slapd.conf
 
