@@ -15,8 +15,27 @@
 #   5. upstream-only  — filter shapes of the SLOW searches specifically;
 #                       this is the actual tuning worklist
 
-CONTAINER="${1:-01-ldap-proxy-01}"
-LOG=$(docker logs "$CONTAINER" 2>&1)
+CONTAINER="${1:-jc-ldap-proxy}"
+
+# Prefer an explicitly selected runtime, otherwise use whichever supported
+# container CLI is installed. This keeps the script usable for both the
+# Docker Compose and Podman/Quadlet deployments documented in the README.
+if [ -n "${CONTAINER_RUNTIME:-}" ]; then
+  RUNTIME="$CONTAINER_RUNTIME"
+elif command -v docker >/dev/null 2>&1; then
+  RUNTIME=docker
+elif command -v podman >/dev/null 2>&1; then
+  RUNTIME=podman
+else
+  echo "Neither docker nor podman was found" >&2
+  exit 1
+fi
+
+if ! LOG=$("$RUNTIME" logs "$CONTAINER" 2>&1); then
+  echo "Unable to read logs for container '$CONTAINER' using $RUNTIME" >&2
+  echo "$LOG" >&2
+  exit 1
+fi
 
 echo "=== 1. Cache hit ratio (searches only, binds excluded) ==="
 echo "$LOG" | grep -oE "SEARCH RESULT.*etime=[0-9.]+" | \
@@ -35,13 +54,26 @@ echo "$LOG" | grep -oE "SEARCH RESULT.*etime=[0-9.]+" | awk -F'etime=' \
 echo ""
 echo "=== 3. Enumerations (objectClass=*), paired by conn/op ==="
 echo "$LOG" | awk '
-  /SRCH base=.*filter="\(objectClass=\*\)"/ { want[$3 $4] = 1 }
-  /SEARCH RESULT/ && ($3 $4) in want {
+  function opkey(line, c, o) {
+    c = o = ""
+    if (match(line, /conn=[0-9]+/))
+      c = substr(line, RSTART, RLENGTH)
+    if (match(line, /op=[0-9]+/))
+      o = substr(line, RSTART, RLENGTH)
+    return c "|" o
+  }
+  /SRCH base=.*filter="\(objectClass=\*\)"/ {
+    key = opkey($0)
+    if (key != "|") want[key] = 1
+  }
+  /SEARCH RESULT/ {
+    key = opkey($0)
+    if (!(key in want)) next
     if (match($0, /etime=[0-9.]+/)) {
       e = substr($0, RSTART+6, RLENGTH-6) + 0
       if (e < 0.005) f++; else s++
     }
-    delete want[$3 $4]
+    delete want[key]
   }
   END { printf "cached: %d   upstream: %d\n", f+0, s+0 }'
 
@@ -53,18 +85,29 @@ echo "$LOG" | grep 'SRCH base=' | grep -oE 'filter="[^"]*"' | \
 echo ""
 echo "=== 5. Tuning worklist: shapes of UPSTREAM (slow) searches only ==="
 echo "$LOG" | awk '
+  function opkey(line, c, o) {
+    c = o = ""
+    if (match(line, /conn=[0-9]+/))
+      c = substr(line, RSTART, RLENGTH)
+    if (match(line, /op=[0-9]+/))
+      o = substr(line, RSTART, RLENGTH)
+    return c "|" o
+  }
   /SRCH base=/ {
     if (match($0, /filter="[^"]*"/)) {
       flt = substr($0, RSTART, RLENGTH)
       gsub(/=[^)(*"]*\)/, "=)", flt)
-      shape[$3 $4] = flt
+      key = opkey($0)
+      if (key != "|") shape[key] = flt
     }
   }
-  /SEARCH RESULT/ && ($3 $4) in shape {
+  /SEARCH RESULT/ {
+    key = opkey($0)
+    if (!(key in shape)) next
     if (match($0, /etime=[0-9.]+/)) {
       e = substr($0, RSTART+6, RLENGTH-6) + 0
-      if (e >= 0.005) slow[shape[$3 $4]]++
+      if (e >= 0.005) slow[shape[key]]++
     }
-    delete shape[$3 $4]
+    delete shape[key]
   }
   END { for (fl in slow) printf "%6d  %s\n", slow[fl], fl }' | sort -rn | head -10

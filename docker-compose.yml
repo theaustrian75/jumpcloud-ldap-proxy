@@ -27,6 +27,9 @@ services:
     environment:
       # Interpolated from the .env file next to this compose file
       JC_ORG_ID: ${JC_ORG_ID:?Set JC_ORG_ID in .env}
+      # Exact JumpCloud UID used by QTS for its LDAP bind. Cached password
+      # and hash attributes are readable only by this identity.
+      JC_CACHE_READER_UID: ${JC_CACHE_READER_UID:?Set JC_CACHE_READER_UID in .env}
       # 'stats' logs every search (for pcache template tuning);
       # switch to 'none' afterwards and `docker compose up -d` again.
       SLAPD_LOGLEVEL: ${SLAPD_LOGLEVEL:-stats}

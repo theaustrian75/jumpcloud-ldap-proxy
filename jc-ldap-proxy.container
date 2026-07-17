@@ -9,6 +9,8 @@ Wants=network-online.target
 Image=registry.klausk.xyz:8443/repositories/dragonsnest/ldap-proxy:latest
 ContainerName=jc-ldap-proxy
 Environment=JC_ORG_ID=CHANGE_ME
+# UID of the JumpCloud account configured as QTS's LDAP bind user
+Environment=JC_CACHE_READER_UID=CHANGE_ME
 Environment=SLAPD_LOGLEVEL=stats
 # Uncomment if a remote client must reach this proxy (IP or ip%netmask)
 #Environment=ALLOWED_CLIENT_IP=192.168.1.50
