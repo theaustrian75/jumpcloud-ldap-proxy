@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes shellcheck
+
+      - name: Check shell scripts
+        run: shellcheck entrypoint.sh verify-proxy.sh tests/*.sh
+
+      - name: Build image
+        run: docker build --tag jc-ldap-proxy:test --file Dockerfile.ldap-proxy .
+
+      - name: Run configuration and ACL tests
+        run: tests/test-container.sh jc-ldap-proxy:test

@@ -2,8 +2,9 @@
 # back-ldap (proxy) + pcache (query cache) on OpenLDAP 2.6
 #
 # REPLACE BEFORE USE:
-#   @@JC_ORG_ID@@     -> your JumpCloud org ID (from the JC admin console, LDAP settings)
-#   192.168.1.50    -> your QNAP's IP
+#   @@JC_ORG_ID@@          -> JumpCloud org ID
+#   @@JC_CACHE_READER_UID@@ -> QTS LDAP bind user's UID
+#   @@ALLOWED_CLIENT_IP@@   -> optional remote client IP/network
 
 include         /etc/openldap/schema/core.schema
 include         /etc/openldap/schema/cosine.schema
@@ -20,18 +21,13 @@ moduleload      back_ldap.so
 moduleload      back_mdb.so
 moduleload      pcache.so
 
-# 'stats' logs each search with its filter — needed once to discover the exact
-# filter shapes QTS sends (see pcacheTemplate below). Drop to 'none' afterwards.
-loglevel        stats
-
 # TLS for the LDAPS listener (mount your lab-CA-issued cert here)
 TLSCertificateFile      /certs/proxy.crt
 TLSCertificateKeyFile   /certs/proxy.key
 TLSProtocolMin          3.3
 
-# Anonymous access is allowed ONLY for rootDSE base reads from loopback
-# (container healthcheck). The JumpCloud tree itself requires an
-# authenticated bind — see 'require authc' in the database section.
+# Anonymous rootDSE reads from loopback support the container healthcheck.
+# QTS anonymous probes of the JumpCloud tree are handled by the database ACLs.
 access to dn.base=""
         by peername.ip=127.0.0.1 read
         by * none
@@ -49,7 +45,6 @@ uri             "ldaps://ldap.jumpcloud.com:636"
 protocol-version 3
 rebind-as-user  yes
 chase-referrals no
-network-timeout 10
 idle-timeout    300
 single-conn     no
 # Fail fast when JumpCloud is unreachable instead of blocking clients
@@ -64,7 +59,7 @@ timeout         15
 
 # Who may use the proxy. Source IP depends on how it's deployed:
 #  - 127.0.0.1: in-container healthcheck (always required)
-#  - 172.16.0.0/12: Docker bridge networking on the QNAP — QTS connecting to
+#  - 172.28.53.0/24: pinned Docker bridge network — QTS connecting to
 #    the published port arrives NATed from the bridge gateway, not as
 #    127.0.0.1 or the NAS LAN IP
 #  - ALLOWED_CLIENT_IP env (default 127.0.0.1 = no-op): a remote client's
@@ -76,20 +71,21 @@ timeout         15
 # pcache is shared across LDAP identities, so the remote server's per-user
 # authorization cannot be trusted for cached results. Password and hash
 # attributes are therefore readable only by the designated QTS cache-reader
-# bind DN, and only from the same allowed source networks. The auth grants
-# permit password verification without granting search/read access.
+# bind DN, and only from the same allowed source networks. Anonymous auth
+# grants permit bind password verification; reader grants allow Samba to
+# fetch the hashes it validates locally.
 access to attrs=userPassword,sambaNTPassword,sambaLMPassword,sambaPasswordHistory,sambaClearTextPassword,sambaPreviousClearTextPassword,encNTPassword,ntPasswordSHA,keynHash
         by dn.exact="uid=@@JC_CACHE_READER_UID@@,ou=Users,o=@@JC_ORG_ID@@,dc=jumpcloud,dc=com" peername.ip=127.0.0.1 read
-        by dn.exact="uid=@@JC_CACHE_READER_UID@@,ou=Users,o=@@JC_ORG_ID@@,dc=jumpcloud,dc=com" peername.ip=172.16.0.0%255.240.0.0 read
+        by dn.exact="uid=@@JC_CACHE_READER_UID@@,ou=Users,o=@@JC_ORG_ID@@,dc=jumpcloud,dc=com" peername.ip=172.28.53.0%255.255.255.0 read
         by dn.exact="uid=@@JC_CACHE_READER_UID@@,ou=Users,o=@@JC_ORG_ID@@,dc=jumpcloud,dc=com" peername.ip=@@ALLOWED_CLIENT_IP@@ read
         by anonymous peername.ip=127.0.0.1 auth
-        by anonymous peername.ip=172.16.0.0%255.240.0.0 auth
+        by anonymous peername.ip=172.28.53.0%255.255.255.0 auth
         by anonymous peername.ip=@@ALLOWED_CLIENT_IP@@ auth
         by * none
 
 access to *
         by peername.ip=127.0.0.1 read
-        by peername.ip=172.16.0.0%255.240.0.0 read
+        by peername.ip=172.28.53.0%255.255.255.0 read
         by peername.ip=@@ALLOWED_CLIENT_IP@@ read
         by * none
 
