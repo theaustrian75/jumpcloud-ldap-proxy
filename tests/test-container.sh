@@ -7,6 +7,8 @@ TMP_ROOT=$(mktemp -d)
 CERT_DIR="$TMP_ROOT/certs"
 CONTAINER="jc-ldap-proxy-test-$$"
 
+# Invoked through trap.
+# shellcheck disable=SC2317
 cleanup() {
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
   rm -rf "$TMP_ROOT"

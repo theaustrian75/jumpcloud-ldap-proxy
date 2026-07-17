@@ -108,7 +108,7 @@ pcacheAttrset   0 objectClass uid userPassword uidNumber gidNumber cn sn givenNa
 
 # Filter templates: a query is cacheable only if its filter matches one of
 # these shapes (values stripped). Positive TTL 900s, negative TTL 120s.
-# Run one QNAP login with loglevel stats, read the SRCH filters from the log,
+# Run one QNAP login with SLAPD_LOGLEVEL=stats, read SRCH filters from the log,
 # and add/adjust templates to match what QTS actually sends.
 pcacheTemplate  (uid=) 0 900 120
 pcacheTemplate  (&(uid=)(objectClass=)) 0 900 120
