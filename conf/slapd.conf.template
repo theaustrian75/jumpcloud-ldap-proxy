@@ -26,8 +26,9 @@ TLSCertificateFile      /certs/proxy.crt
 TLSCertificateKeyFile   /certs/proxy.key
 TLSProtocolMin          3.3
 
-# Anonymous rootDSE reads from loopback support the container healthcheck.
-# QTS anonymous probes of the JumpCloud tree are handled by the database ACLs.
+# Anonymous access is allowed ONLY for rootDSE base reads from loopback
+# (container healthcheck). The JumpCloud tree itself requires an
+# authenticated bind — see 'require authc' in the database section.
 access to dn.base=""
         by peername.ip=127.0.0.1 read
         by * none
