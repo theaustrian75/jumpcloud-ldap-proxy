@@ -6,6 +6,10 @@
 #   @@JC_CACHE_READER_UID@@ -> QTS LDAP bind user's UID
 #   @@ALLOWED_CLIENT_IP@@   -> optional remote client IP/network
 #   @@SLAPD_LOGLEVEL@@      -> stats or none
+#   @@PCACHE_POSITIVE_TTL@@ -> standard positive-result TTL
+#   @@PCACHE_NEGATIVE_TTL@@ -> standard negative-result TTL
+#   @@PCACHE_ENUM_POSITIVE_TTL@@ -> enumeration positive-result TTL
+#   @@PCACHE_ENUM_NEGATIVE_TTL@@ -> enumeration negative-result TTL
 
 include         /etc/openldap/schema/core.schema
 include         /etc/openldap/schema/cosine.schema
@@ -118,33 +122,33 @@ pcache          mdb 20000 1 500 120
 pcacheAttrset   0 objectClass uid userPassword uidNumber gidNumber cn sn givenName displayName initials mail gecos homeDirectory loginShell description memberUid member uniqueMember memberOf company sshKey departmentNumber jcLdapAdmin jcSambaAdmin employeeNumber employeeType title ou shadowLastChange shadowMin shadowMax shadowWarning shadowInactive shadowExpire shadowFlag sambaSID sambaNTPassword sambaLMPassword sambaAcctFlags sambaPwdLastSet sambaPwdCanChange sambaPwdMustChange sambaLogonTime sambaLogoffTime sambaKickoffTime sambaPrimaryGroupSID sambaDomainName sambaHomePath sambaHomeDrive sambaLogonScript sambaProfilePath sambaUserWorkstations sambaBadPasswordCount sambaBadPasswordTime sambaLogonHours sambaMungedDial sambaPasswordHistory sambaGroupType sambaSIDList sambaNextRid sambaNextGroupRid sambaNextUserRid sambaAlgorithmicRidBase sambaMinPwdLength sambaPwdHistoryLength sambaLogonToChgPwd sambaMaxPwdAge sambaMinPwdAge sambaLockoutDuration sambaLockoutObservationWindow sambaLockoutThreshold sambaForceLogoff sambaRefuseMachinePwdChange modifyTimestamp
 
 # Filter templates: a query is cacheable only if its filter matches one of
-# these shapes (values stripped). Positive TTL 900s, negative TTL 120s.
+# these shapes (values stripped). TTLs are rendered from the environment.
 # Run one QNAP login with SLAPD_LOGLEVEL=stats, read SRCH filters from the log,
 # and add/adjust templates to match what QTS actually sends.
-pcacheTemplate  (uid=) 0 900 120
-pcacheTemplate  (&(uid=)(objectClass=)) 0 900 120
-pcacheTemplate  (&(objectClass=)(uid=)) 0 900 120
-pcacheTemplate  (cn=) 0 900 120
-pcacheTemplate  (&(objectClass=)(cn=)) 0 900 120
-pcacheTemplate  (gidNumber=) 0 900 120
-pcacheTemplate  (&(objectClass=)(gidNumber=)) 0 900 120
-pcacheTemplate  (memberUid=) 0 900 120
-pcacheTemplate  (&(objectClass=)(memberUid=)) 0 900 120
-pcacheTemplate  (&(objectClass=)(sambaSID=)) 0 900 120
-pcacheTemplate  (uidNumber=) 0 900 120
-pcacheTemplate  (&(objectClass=)(uidNumber=)) 0 900 120
+pcacheTemplate  (uid=) 0 @@PCACHE_POSITIVE_TTL@@ @@PCACHE_NEGATIVE_TTL@@
+pcacheTemplate  (&(uid=)(objectClass=)) 0 @@PCACHE_POSITIVE_TTL@@ @@PCACHE_NEGATIVE_TTL@@
+pcacheTemplate  (&(objectClass=)(uid=)) 0 @@PCACHE_POSITIVE_TTL@@ @@PCACHE_NEGATIVE_TTL@@
+pcacheTemplate  (cn=) 0 @@PCACHE_POSITIVE_TTL@@ @@PCACHE_NEGATIVE_TTL@@
+pcacheTemplate  (&(objectClass=)(cn=)) 0 @@PCACHE_POSITIVE_TTL@@ @@PCACHE_NEGATIVE_TTL@@
+pcacheTemplate  (gidNumber=) 0 @@PCACHE_POSITIVE_TTL@@ @@PCACHE_NEGATIVE_TTL@@
+pcacheTemplate  (&(objectClass=)(gidNumber=)) 0 @@PCACHE_POSITIVE_TTL@@ @@PCACHE_NEGATIVE_TTL@@
+pcacheTemplate  (memberUid=) 0 @@PCACHE_POSITIVE_TTL@@ @@PCACHE_NEGATIVE_TTL@@
+pcacheTemplate  (&(objectClass=)(memberUid=)) 0 @@PCACHE_POSITIVE_TTL@@ @@PCACHE_NEGATIVE_TTL@@
+pcacheTemplate  (&(objectClass=)(sambaSID=)) 0 @@PCACHE_POSITIVE_TTL@@ @@PCACHE_NEGATIVE_TTL@@
+pcacheTemplate  (uidNumber=) 0 @@PCACHE_POSITIVE_TTL@@ @@PCACHE_NEGATIVE_TTL@@
+pcacheTemplate  (&(objectClass=)(uidNumber=)) 0 @@PCACHE_POSITIVE_TTL@@ @@PCACHE_NEGATIVE_TTL@@
 # QTS re-runs a full (objectClass=*) enumeration every ~30s; caching it
 # turns the constant sync churn into local answers. Trade-off: directory
 # changes (new/removed JumpCloud users) take up to the TTL to appear.
-pcacheTemplate  (objectClass=*) 0 300 60
+pcacheTemplate  (objectClass=*) 0 @@PCACHE_ENUM_POSITIVE_TTL@@ @@PCACHE_ENUM_NEGATIVE_TTL@@
 # Observed in production (verify-proxy.sh section 5, 100%-miss shapes):
 # nss class enumerations, Samba SID lookups in reversed operand order
 # (template matching is structural — both orders needed), smbd's domain
 # entry lookup, and the QTS search-box OR-filter.
-pcacheTemplate  (objectClass=) 0 300 60
-pcacheTemplate  (&(sambaSID=)(objectClass=)) 0 900 120
-pcacheTemplate  (&(objectClass=)(sambaDomainName=)) 0 900 120
-pcacheTemplate  (&(objectClass=)(|(displayName=)(cn=))) 0 900 120
+pcacheTemplate  (objectClass=) 0 @@PCACHE_ENUM_POSITIVE_TTL@@ @@PCACHE_ENUM_NEGATIVE_TTL@@
+pcacheTemplate  (&(sambaSID=)(objectClass=)) 0 @@PCACHE_POSITIVE_TTL@@ @@PCACHE_NEGATIVE_TTL@@
+pcacheTemplate  (&(objectClass=)(sambaDomainName=)) 0 @@PCACHE_POSITIVE_TTL@@ @@PCACHE_NEGATIVE_TTL@@
+pcacheTemplate  (&(objectClass=)(|(displayName=)(cn=))) 0 @@PCACHE_POSITIVE_TTL@@ @@PCACHE_NEGATIVE_TTL@@
 
 # NOTE: pcacheBind was removed deliberately. It conflicts with
 # rebind-as-user: a bind answered from the local cache leaves back-ldap

@@ -13,9 +13,15 @@ sed -e "s/@@JC_ORG_ID@@/$ORG_ID/g" \
     -e "s/@@JC_CACHE_READER_UID@@/$READER_UID/g" \
     -e "s/@@ALLOWED_CLIENT_IP@@/192.0.2.10/g" \
     -e "s/@@SLAPD_LOGLEVEL@@/none/g" \
+    -e "s/@@PCACHE_POSITIVE_TTL@@/901/g" \
+    -e "s/@@PCACHE_NEGATIVE_TTL@@/121/g" \
+    -e "s/@@PCACHE_ENUM_POSITIVE_TTL@@/301/g" \
+    -e "s/@@PCACHE_ENUM_NEGATIVE_TTL@@/61/g" \
     /etc/openldap/slapd.conf.template > "$CONFIG"
 
 grep -q '^loglevel[[:space:]]*none$' "$CONFIG"
+grep -Fq 'pcacheTemplate  (uid=) 0 901 121' "$CONFIG"
+grep -Fq 'pcacheTemplate  (objectClass=*) 0 301 61' "$CONFIG"
 slaptest -f "$CONFIG" -u >/dev/null
 
 assert_access() {

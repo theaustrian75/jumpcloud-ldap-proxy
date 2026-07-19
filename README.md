@@ -21,19 +21,22 @@ Validated behavior (slapd 2.6.8 on Alpine 3.22 (musl) and 2.6.10 on Ubuntu 24.04
    UID of the JumpCloud account configured as QTS's LDAP bind user.
    `LDAP_PROXY_UID` and `LDAP_PROXY_GID` select the numeric process identity
    and tmpfs ownership; they default to QNAP's `httpdusr:everyone` (`99:100`).
+   `LDAP_PROXY_CONTAINER_NAME` controls the Compose container name, and
+   `LDAP_PROXY_CERT_DIR` points to the host certificate folder.
    Only that exact bind identity may read cached password/hash attributes.
    The entrypoint renders slapd.conf from `conf/slapd.conf.template` and
    refuses to start without both values. If the proxy will ever serve a
    client on another host, set `ALLOWED_CLIENT_IP` in `.env` (single IPv4
    or ip%netmask form); unset, it defaults to a harmless loopback duplicate.
    All substituted values are validated at startup.
-2. Put a lab-CA-issued cert/key at
-   `/share/Container/jc-ldap-proxy/certs/proxy.{crt,key}` for Compose, or
-   `/srv/jc-ldap-proxy/certs/proxy.{crt,key}` for Quadlet. The SAN must match
-   whatever name/IP you give the QNAP. Make both files readable by the
-   configured numeric identity (`99:100` by default, or `chmod 640` plus
-   ownership via `podman unshare`). Startup reports a direct
-   missing/unreadable-file error if the mount or permissions are wrong.
+2. Put a lab-CA-issued `proxy.crt` and `proxy.key` in
+   `LDAP_PROXY_CERT_DIR` (default:
+   `/share/Container/jc-ldap-proxy/certs`). Quadlet uses the static host path
+   in its `Volume=` line instead. The SAN must match whatever name/IP you give
+   the QNAP. Make both files readable by the configured numeric identity
+   (`99:100` by default, or `chmod 640` plus ownership via `podman unshare`).
+   Startup reports a direct missing/unreadable-file error if the mount or
+   permissions are wrong.
 3. GitHub Actions builds `linux/amd64` and `linux/arm64` images on native
    runners, publishes them to
    `ghcr.io/theaustrian75/jumpcloud-ldap-proxy`, and creates a multi-arch
@@ -156,9 +159,9 @@ Expected auth semantics (re-test after changing `JC_CACHE_READER_UID`):
 - LDAP binds always go upstream, so JumpCloud password changes and account
   disables affect new LDAP binds immediately.
 - Samba validates users from hash searches, and those results can remain in
-  pcache for the matching template's positive TTL (900 seconds for user
-  lookups). An old SMB password can therefore remain usable until that cached
-  hash expires even while JumpCloud is reachable.
+  pcache for `PCACHE_POSITIVE_TTL` (900 seconds by default). An old SMB
+  password can therefore remain usable until that cached hash expires even
+  while JumpCloud is reachable.
 - While JumpCloud is unreachable, new LDAP binds fail (binds are never
   answered from cache — a cached bind leaves the proxy without upstream
   credentials and breaks later operations). Already-bound connections keep
@@ -215,10 +218,13 @@ the host firewall.
 
 ## Knobs and trade-offs
 
-- Positive TTL 900s / negative 120s (`pcacheTemplate` cols 3-4): how stale a
-  lookup may be. A user disabled in JumpCloud can still resolve for up to
-  the positive TTL; cached Samba hashes can retain the same authentication
-  window.
+- `PCACHE_POSITIVE_TTL` / `PCACHE_NEGATIVE_TTL` default to 900s / 120s for
+  standard lookups. `PCACHE_ENUM_POSITIVE_TTL` /
+  `PCACHE_ENUM_NEGATIVE_TTL` default to 300s / 60s for full directory
+  enumerations. All four must be positive integer seconds.
+- Positive TTLs control how stale a lookup may be. A user disabled in
+  JumpCloud can still resolve for up to the applicable positive TTL; cached
+  Samba hashes can retain the standard positive-TTL authentication window.
 - Cache is on tmpfs (see the Quadlet unit): no hashes at rest, cold cache
   after restart. Move to a volume only if you accept hashes on disk.
 - The proxy answers only the pinned QNAP bridge, localhost, and an optional
@@ -248,6 +254,6 @@ Residual upstream traffic is TTL refreshes on high-frequency shapes,
 first-touch misses, and one untemplatable shape (smbd alias expansion,
 (&(objectClass=)(sambaGroupType=)(|(sambaSIDList=)...)) — its OR-arity
 varies with SID count and pcache templates match exact filter structure).
-Raising the 900s template TTLs buys a few points of hit ratio at the cost
-of staler entries; not recommended. Re-measure with verify-proxy.sh after
-enabling SLAPD_LOGLEVEL=stats temporarily.
+Raising `PCACHE_POSITIVE_TTL` buys a few points of hit ratio at the cost of
+staler entries; not recommended. Re-measure with verify-proxy.sh after enabling
+SLAPD_LOGLEVEL=stats temporarily.

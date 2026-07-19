@@ -33,6 +33,10 @@ RUN chmod 755 /entrypoint.sh && \
         -e 's/@@JC_CACHE_READER_UID@@/cache-reader/g' \
         -e 's/@@ALLOWED_CLIENT_IP@@/127.0.0.1/g' \
         -e 's/@@SLAPD_LOGLEVEL@@/stats/g' \
+        -e 's/@@PCACHE_POSITIVE_TTL@@/900/g' \
+        -e 's/@@PCACHE_NEGATIVE_TTL@@/120/g' \
+        -e 's/@@PCACHE_ENUM_POSITIVE_TTL@@/300/g' \
+        -e 's/@@PCACHE_ENUM_NEGATIVE_TTL@@/60/g' \
         /etc/openldap/slapd.conf.template > /tmp/build-check.conf && \
     slaptest -f /tmp/build-check.conf -u && rm /tmp/build-check.conf
 

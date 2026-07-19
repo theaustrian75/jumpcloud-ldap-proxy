@@ -43,6 +43,31 @@ case "$SLAPD_LOGLEVEL" in
   *) echo "SLAPD_LOGLEVEL must be 'stats' or 'none'" >&2; exit 1 ;;
 esac
 
+PCACHE_POSITIVE_TTL="${PCACHE_POSITIVE_TTL:-900}"
+PCACHE_NEGATIVE_TTL="${PCACHE_NEGATIVE_TTL:-120}"
+PCACHE_ENUM_POSITIVE_TTL="${PCACHE_ENUM_POSITIVE_TTL:-300}"
+PCACHE_ENUM_NEGATIVE_TTL="${PCACHE_ENUM_NEGATIVE_TTL:-60}"
+
+validate_ttl() {
+  ttl_name=$1
+  ttl_value=$2
+  case "$ttl_value" in
+    *[!0-9]*|"")
+      echo "$ttl_name must be a positive integer number of seconds" >&2
+      exit 1
+      ;;
+  esac
+  if ! [ "$ttl_value" -gt 0 ] 2>/dev/null; then
+    echo "$ttl_name must be a positive integer number of seconds" >&2
+    exit 1
+  fi
+}
+
+validate_ttl PCACHE_POSITIVE_TTL "$PCACHE_POSITIVE_TTL"
+validate_ttl PCACHE_NEGATIVE_TTL "$PCACHE_NEGATIVE_TTL"
+validate_ttl PCACHE_ENUM_POSITIVE_TTL "$PCACHE_ENUM_POSITIVE_TTL"
+validate_ttl PCACHE_ENUM_NEGATIVE_TTL "$PCACHE_ENUM_NEGATIVE_TTL"
+
 for tls_file in /certs/proxy.crt /certs/proxy.key; do
   if [ ! -f "$tls_file" ]; then
     echo "Required TLS file is missing: $tls_file (check the /certs volume mount)" >&2
@@ -58,6 +83,10 @@ sed -e "s/@@JC_ORG_ID@@/${JC_ORG_ID}/g" \
     -e "s/@@JC_CACHE_READER_UID@@/${JC_CACHE_READER_UID}/g" \
     -e "s/@@ALLOWED_CLIENT_IP@@/${ALLOWED_CLIENT_IP}/g" \
     -e "s/@@SLAPD_LOGLEVEL@@/${SLAPD_LOGLEVEL}/g" \
+    -e "s/@@PCACHE_POSITIVE_TTL@@/${PCACHE_POSITIVE_TTL}/g" \
+    -e "s/@@PCACHE_NEGATIVE_TTL@@/${PCACHE_NEGATIVE_TTL}/g" \
+    -e "s/@@PCACHE_ENUM_POSITIVE_TTL@@/${PCACHE_ENUM_POSITIVE_TTL}/g" \
+    -e "s/@@PCACHE_ENUM_NEGATIVE_TTL@@/${PCACHE_ENUM_NEGATIVE_TTL}/g" \
     /etc/openldap/slapd.conf.template > /run/openldap/slapd.conf
 chmod 600 /run/openldap/slapd.conf
 
