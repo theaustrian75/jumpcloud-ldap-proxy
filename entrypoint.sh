@@ -16,6 +16,20 @@ case "$JC_CACHE_READER_UID" in
   *[!a-zA-Z0-9._@-]*|"") echo "JC_CACHE_READER_UID contains invalid characters" >&2; exit 1 ;;
 esac
 
+# Human-readable slapd log timestamps use this IANA timezone.
+TZ="${TZ:-America/New_York}"
+case "$TZ" in
+  /*|*..*|*[!a-zA-Z0-9_+./-]*|"")
+    echo "TZ must be an installed IANA timezone (for example America/New_York)" >&2
+    exit 1
+    ;;
+esac
+if [ ! -f "/usr/share/zoneinfo/$TZ" ]; then
+  echo "TZ is not installed: $TZ" >&2
+  exit 1
+fi
+export TZ
+
 # Optional extra allowed client (IP or ip%netmask). Default duplicates the
 # loopback entry, i.e. grants nothing new.
 ALLOWED_CLIENT_IP="${ALLOWED_CLIENT_IP:-127.0.0.1}"

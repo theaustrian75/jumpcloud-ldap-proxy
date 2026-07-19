@@ -6,13 +6,16 @@ FROM alpine:3.22
 ARG LDAP_PROXY_UID=99
 ARG LDAP_PROXY_GID=100
 
+ENV TZ=America/New_York
+
 RUN apk add --no-cache \
         openldap \
         openldap-back-ldap \
         openldap-back-mdb \
         openldap-overlay-proxycache \
         openldap-clients \
-        ca-certificates && \
+        ca-certificates \
+        tzdata && \
     # Upstream LDAPS validation: JumpCloud uses a public CA
     printf 'TLS_CACERT /etc/ssl/certs/ca-certificates.crt\nTLS_REQCERT demand\n' >> /etc/openldap/ldap.conf && \
     mkdir -p /var/lib/ldap/pcache /run/openldap /certs && \

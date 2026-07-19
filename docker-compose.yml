@@ -35,6 +35,8 @@ services:
       # 'stats' logs every search (for pcache template tuning);
       # switch to 'none' afterwards and `docker compose up -d` again.
       SLAPD_LOGLEVEL: ${SLAPD_LOGLEVEL:-stats}
+      # IANA timezone used by slapd's human-readable log timestamps.
+      TZ: ${TZ:-America/New_York}
       # Optional: extra allowed client (IP or ip%netmask) for the case where
       # the proxy serves a consumer on ANOTHER host. Unset = loopback no-op,
       # correct for the QNAP-local deployment.

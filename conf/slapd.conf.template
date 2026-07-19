@@ -25,6 +25,11 @@ moduleload      pcache.so
 # 'stats' logs each search with its filter — needed once to discover the exact
 # filter shapes QTS sends (see pcacheTemplate below). Drop to 'none' afterwards.
 loglevel        @@SLAPD_LOGLEVEL@@
+# Debug mode keeps slapd in the foreground for the container. Send that output
+# back to stderr with human-readable timestamps in the configured TZ.
+logfile         /dev/stderr
+logfile-format  syslog-localtime
+logfile-only    on
 
 # TLS for the LDAPS listener (mount your lab-CA-issued cert here)
 TLSCertificateFile      /certs/proxy.crt
