@@ -19,6 +19,8 @@ Validated behavior (slapd 2.6.8 on Alpine 3.22 (musl) and 2.6.10 on Ubuntu 24.04
    tag or manifest digest, set `JC_ORG_ID` (JumpCloud console -> LDAP; the
    o=<id> component of your base DN), and set `JC_CACHE_READER_UID` to the
    UID of the JumpCloud account configured as QTS's LDAP bind user.
+   `LDAP_PROXY_UID` and `LDAP_PROXY_GID` select the numeric process identity
+   and tmpfs ownership; they default to QNAP's `httpdusr:everyone` (`99:100`).
    Only that exact bind identity may read cached password/hash attributes.
    The entrypoint renders slapd.conf from `conf/slapd.conf.template` and
    refuses to start without both values. If the proxy will ever serve a
@@ -29,9 +31,9 @@ Validated behavior (slapd 2.6.8 on Alpine 3.22 (musl) and 2.6.10 on Ubuntu 24.04
    `/share/Container/jc-ldap-proxy/certs/proxy.{crt,key}` for Compose, or
    `/srv/jc-ldap-proxy/certs/proxy.{crt,key}` for Quadlet. The SAN must match
    whatever name/IP you give the QNAP. Make both files readable by the
-   container's ldap user (uid 100 in the image, or `chmod 640` plus ownership
-   via `podman unshare`). Startup now reports a direct missing/unreadable-file
-   error if the mount or permissions are wrong.
+   configured numeric identity (`99:100` by default, or `chmod 640` plus
+   ownership via `podman unshare`). Startup reports a direct
+   missing/unreadable-file error if the mount or permissions are wrong.
 3. GitHub Actions builds `linux/amd64` and `linux/arm64` images on native
    runners, publishes them to
    `ghcr.io/theaustrian75/jumpcloud-ldap-proxy`, and creates a multi-arch
@@ -48,7 +50,9 @@ Validated behavior (slapd 2.6.8 on Alpine 3.22 (musl) and 2.6.10 on Ubuntu 24.04
        docker compose up -d
 
    For Podman hosts, install `jc-ldap-proxy.container` as a Quadlet unit
-   instead.
+   instead. Quadlet does not interpolate Compose `.env` variables, so a custom
+   identity must be applied consistently to its `User=`, `Group=`, and both
+   `Tmpfs=` ownership options.
 
 4. Smoke test from the host (expect your JumpCloud entries back):
 

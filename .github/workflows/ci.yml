@@ -30,6 +30,15 @@ jobs:
       - name: Check shell scripts
         run: shellcheck entrypoint.sh verify-proxy.sh tests/*.sh
 
+      - name: Validate Compose configuration
+        env:
+          LDAP_PROXY_IMAGE: jc-ldap-proxy:test
+          LDAP_PROXY_UID: "12345"
+          LDAP_PROXY_GID: "12346"
+          JC_ORG_ID: testorg
+          JC_CACHE_READER_UID: qts-reader
+        run: docker compose config --quiet
+
       - name: Build image
         run: docker build --tag jc-ldap-proxy:test --file Dockerfile.ldap-proxy .
 
