@@ -97,7 +97,7 @@ while [ "$attempt" -lt 30 ]; do
   case "$status" in
     healthy)
       logs=$(docker logs "$CONTAINER" 2>&1)
-      if printf '%s\n' "$logs" | grep -v '\$OpenLDAP:' | \
+      if printf '%s\n' "$logs" | grep -v 'OpenLDAP: slapd' | \
         grep -Eq '^[[:xdigit:]]{8}\.[[:xdigit:]]{8}'; then
         printf 'Found hexadecimal timestamp after the version banner:\n%s\n' "$logs" >&2
         exit 1
