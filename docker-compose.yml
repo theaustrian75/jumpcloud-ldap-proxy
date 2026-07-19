@@ -15,10 +15,9 @@ name: jc-ldap-proxy
 
 services:
   jc-ldap-proxy:
-    # Default: pull the multi-arch image built and pushed by the registry
-    # build script (docker login registry.klausk.xyz:8443 once, if pulls
-    # ever require auth).
-    image: registry.klausk.xyz:8443/repositories/dragonsnest/ldap-proxy:latest
+    # Pin production to an immutable release tag or manifest digest.
+    # Example: registry.example/ldap-proxy@sha256:<64 hex characters>
+    image: ${LDAP_PROXY_IMAGE:?Set LDAP_PROXY_IMAGE to an immutable tag or digest in .env}
     # To build locally on the QNAP instead, uncomment:
     #build:
     #  context: .
@@ -41,6 +40,15 @@ services:
       - "127.0.0.1:636:636"
       - "127.0.0.1:389:389"
     restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    pids_limit: 128
+    mem_limit: 512m
     volumes:
       # Server cert/key for TLS (LDAPS on 636, STARTTLS on 389). The QTS
       # panel validates the cert, so the SAN must cover what it dials
@@ -49,10 +57,10 @@ services:
     networks:
       - net-ldap-proxy
     tmpfs:
-      # Cached hashes stay off disk. uid/gid/mode: the tmpfs is created at
-      # container start and shadows the image directory, so ownership must
-      # be set here — slapd runs as the image's ldap user (uid 100, gid 101)
-      # and cannot write a root-owned mount.
+      # The root filesystem is read-only. Runtime config/PID files and cached
+      # hashes live on size-limited tmpfs mounts owned by the image's ldap user
+      # (uid 100, gid 101).
+      - /run/openldap:rw,size=16m,uid=100,gid=101,mode=0700
       - /var/lib/ldap/pcache:rw,size=256m,uid=100,gid=101,mode=0700
 
 networks:
@@ -61,9 +69,7 @@ networks:
     # compose project name.
     name: net-ldap-proxy
     driver: bridge
-    # Pin the subnet inside 172.16.0.0/12 so the slapd peername ACL
-    # (which allows that range for bridge-NATed QTS connections) is
-    # guaranteed to match regardless of Container Station's address pool.
+    # Pinned exactly to the subnet allowed by the slapd peername ACL.
     ipam:
       config:
         - subnet: 172.28.53.0/24

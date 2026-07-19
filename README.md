@@ -15,30 +15,40 @@ Validated behavior (slapd 2.6.8 on Alpine 3.22 (musl) and 2.6.10 on Ubuntu 24.04
 
 ## Deploy
 
-1. `cp .env.example .env`, set `JC_ORG_ID` (JumpCloud console -> LDAP;
-   the o=<id> component of your base DN), and set `JC_CACHE_READER_UID` to
-   the UID of the JumpCloud account configured as QTS's LDAP bind user.
+1. `cp .env.example .env`, set `LDAP_PROXY_IMAGE` to an immutable release
+   tag or manifest digest, set `JC_ORG_ID` (JumpCloud console -> LDAP; the
+   o=<id> component of your base DN), and set `JC_CACHE_READER_UID` to the
+   UID of the JumpCloud account configured as QTS's LDAP bind user.
    Only that exact bind identity may read cached password/hash attributes.
    The entrypoint renders slapd.conf from `conf/slapd.conf.template` and
    refuses to start without both values. If the proxy will ever serve a
    client on another host, set `ALLOWED_CLIENT_IP` in `.env` (single IPv4
    or ip%netmask form); unset, it defaults to a harmless loopback duplicate.
    All substituted values are validated at startup.
-2. Put a lab-CA-issued cert/key at `/srv/jc-ldap-proxy/certs/proxy.{crt,key}`
-   on the host. The SAN must match whatever name/IP you give the QNAP.
-   Make readable by the container's ldap user (uid 100 in the image, or
-   just `chmod 640` + ownership via `podman unshare`).
-3. Build and push (the build file is Dockerfile.ldap-proxy, fitting a
-   `for Dockerfile.*` multi-image build script; multi-arch builds of the
-   non-native platform need qemu-user-static on the build host):
+2. Put a lab-CA-issued cert/key at
+   `/share/Container/jc-ldap-proxy/certs/proxy.{crt,key}` for Compose, or
+   `/srv/jc-ldap-proxy/certs/proxy.{crt,key}` for Quadlet. The SAN must match
+   whatever name/IP you give the QNAP. Make both files readable by the
+   container's ldap user (uid 100 in the image, or `chmod 640` plus ownership
+   via `podman unshare`). Startup now reports a direct missing/unreadable-file
+   error if the mount or permissions are wrong.
+3. GitHub Actions builds `linux/amd64` and `linux/arm64` images on native
+   runners, publishes them to
+   `ghcr.io/theaustrian75/jumpcloud-ldap-proxy`, and creates a multi-arch
+   manifest. Pushes to `main` publish `main`, `sha-*`, and `latest`; a `v*`
+   tag additionally publishes that release tag. Pull requests build both
+   architectures without publishing.
 
-       podman build --platform linux/amd64,linux/arm64 \
-         --manifest <registry>/ldap-proxy:latest -f Dockerfile.ldap-proxy .
-       podman manifest push --all <registry>/ldap-proxy:latest
+   Use a release/commit tag to discover the resulting manifest digest, then
+   put the immutable `ghcr.io/...@sha256:...` reference in `.env` and replace
+   the `Image=` placeholder in the Quadlet unit. If the GHCR package is
+   private, authenticate the QNAP once with a token that has `read:packages`:
 
-   On the QNAP: `docker login <registry>` once, then
-   `docker compose up -d` (compose pulls the image). For Podman hosts,
-   install jc-ldap-proxy.container as a Quadlet unit instead.
+       echo "$GHCR_TOKEN" | docker login ghcr.io -u theaustrian75 --password-stdin
+       docker compose up -d
+
+   For Podman hosts, install `jc-ldap-proxy.container` as a Quadlet unit
+   instead.
 
 4. Smoke test from the host (expect your JumpCloud entries back):
 
@@ -65,19 +75,16 @@ Validated behavior (slapd 2.6.8 on Alpine 3.22 (musl) and 2.6.10 on Ubuntu 24.04
    Everything else (base DN, bind DN, credentials) stays identical.
    Rollback is that one field: point it back at ldap.jumpcloud.com.
 
-   NOTE on the ACL: QTS connections to a published port arrive NATed from
-   the Docker bridge gateway, which is why slapd.conf allows 172.16.0.0/12
-   (verified with slapacl: bridge range allowed, arbitrary LAN denied).
-   Container Station sometimes uses a non-default bridge subnet - if
-   connections are denied, check `docker network inspect bridge` and adjust
-   that ACL line to the actual bridge range.
+   NOTE on the ACL: QTS connections to the Compose-published port arrive
+   NATed from the pinned `172.28.53.0/24` Docker network. slapd allows exactly
+   that subnet, rather than the full private `172.16.0.0/12` range.
 
 ## Tune the cache templates (do this once)
 
 pcache only caches queries whose filter *shape* matches a `pcacheTemplate`.
 The config ships with the shapes QTS/Samba typically sends, but verify:
 
-1. Leave `loglevel stats` on, log in to the NAS / mount a share once.
+1. Leave `SLAPD_LOGLEVEL=stats` on, log in to the NAS / mount a share once.
 2. `podman logs jc-ldap-proxy | grep SRCH` — each line shows a filter.
 3. For any recurring filter shape not covered, add a `pcacheTemplate` with
    the values stripped, e.g. `(&(objectClass=sambaDomain)(sambaDomainName=))`
@@ -85,6 +92,18 @@ The config ships with the shapes QTS/Samba typically sends, but verify:
    must be added there too, or matching queries won't be cached.
 4. Restart, re-test, then set `SLAPD_LOGLEVEL=none` in `.env` and
    `docker compose up -d` — no rebuild needed.
+
+### Log levels
+
+`SLAPD_LOGLEVEL` is rendered into `slapd.conf` and also controls slapd's
+foreground stderr logging. The entrypoint accepts exactly:
+
+- `stats` (default): log connections, LDAP operations, search filters, and
+  results. Use this while tuning cache templates or diagnosing requests.
+- `none`: emit only unavoidable/high-priority messages. Use this for quiet
+  production operation after tuning.
+
+Any other value is rejected at startup to catch configuration mistakes.
 
 ## Authentication
 
@@ -117,9 +136,12 @@ Users/Groups ingestion.
 Expected auth semantics (re-test after changing `JC_CACHE_READER_UID`):
 - Anonymous and non-reader identities cannot read cached password/hash
   attributes. Anonymous cache misses are still rejected by JumpCloud.
-- While JumpCloud is reachable, it is authoritative: a password changed
-  there takes effect through the proxy immediately, and the old password
-  is rejected at once — the bind cache never overrides a live upstream.
+- LDAP binds always go upstream, so JumpCloud password changes and account
+  disables affect new LDAP binds immediately.
+- Samba validates users from hash searches, and those results can remain in
+  pcache for the matching template's positive TTL (900 seconds for user
+  lookups). An old SMB password can therefore remain usable until that cached
+  hash expires even while JumpCloud is reachable.
 - While JumpCloud is unreachable, new LDAP binds fail (binds are never
   answered from cache — a cached bind leaves the proxy without upstream
   credentials and breaks later operations). Already-bound connections keep
@@ -145,9 +167,11 @@ On the QNAP itself (Container Station / Docker) is the recommended
 placement — see docker-compose.yml. The compose deployment publishes both
 ports on loopback; QTS points at localhost and uses STARTTLS on port 389,
 so auth traffic never leaves the NAS. The proxy shares the NAS's failure
-domain (if the NAS is up, its auth path is up). Any always-on Podman host
-works too via the Quadlet unit; that adds one cross-host dependency for
-NAS auth.
+domain (if the NAS is up, its auth path is up). The Quadlet unit is also
+loopback-bound and therefore assumes QTS runs on the same host. For a separate
+Podman host, deliberately bind `PublishPort` to that host's LAN address, set
+`ALLOWED_CLIENT_IP` to the QNAP address, and enforce the same restriction in
+the host firewall.
 
 ## Operational notes
 
@@ -156,6 +180,10 @@ NAS auth.
   the container still reports healthy. Issue the loopback cert long-lived
   (it never crosses a wire), and if QTS auth fails with a green container,
   check cert dates first.
+- The runtime root filesystem is read-only, all capabilities except
+  `NET_BIND_SERVICE` are dropped, privilege escalation is disabled, and
+  memory/PID limits are applied. `/run/openldap` and the 256 MiB cache are
+  the only writable tmpfs mounts.
 - Acceptance test after cutover — prove the cache engages: run the same
   authenticated ldapsearch through the proxy twice and compare wall time
   (first ~ WAN RTT, second ~ 1 ms). If the second is not fast, QTS's filter
@@ -172,11 +200,23 @@ NAS auth.
 
 - Positive TTL 900s / negative 120s (`pcacheTemplate` cols 3-4): how stale a
   lookup may be. A user disabled in JumpCloud can still resolve for up to
-  the positive TTL.
+  the positive TTL; cached Samba hashes can retain the same authentication
+  window.
 - Cache is on tmpfs (see the Quadlet unit): no hashes at rest, cold cache
   after restart. Move to a volume only if you accept hashes on disk.
-- The proxy answers only the QNAP + localhost (peername ACL) and requires
-  authenticated binds; keep host firewalling in front of it anyway.
+- The proxy answers only the pinned QNAP bridge, localhost, and an optional
+  `ALLOWED_CLIENT_IP`. QTS's required anonymous probes can read non-sensitive
+  cached directory attributes, while credential/hash attributes require the
+  exact configured reader DN. Keep host firewalling in front of it anyway.
+
+## Automated checks
+
+GitHub Actions runs ShellCheck, validates startup failures, starts the image
+with the production hardening constraints, and exercises a `slapacl` matrix.
+After validation, native AMD64 and ARM64 runners build architecture-specific
+GHCR images and a final job merges them into one multi-arch manifest. The ACL
+regression confirms reader-DN plus source-network requirements for sensitive
+attributes and preserves QTS's anonymous non-sensitive lookup behavior.
 
 ## Measured performance (production baseline, 2026-07)
 

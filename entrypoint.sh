@@ -23,12 +23,30 @@ case "$ALLOWED_CLIENT_IP" in
   *[!0-9.%]*|"") echo "ALLOWED_CLIENT_IP must be an IPv4 address or ip%netmask" >&2; exit 1 ;;
 esac
 
+SLAPD_LOGLEVEL="${SLAPD_LOGLEVEL:-stats}"
+case "$SLAPD_LOGLEVEL" in
+  stats|none) ;;
+  *) echo "SLAPD_LOGLEVEL must be 'stats' or 'none'" >&2; exit 1 ;;
+esac
+
+for tls_file in /certs/proxy.crt /certs/proxy.key; do
+  if [ ! -f "$tls_file" ]; then
+    echo "Required TLS file is missing: $tls_file (check the /certs volume mount)" >&2
+    exit 1
+  fi
+  if [ ! -r "$tls_file" ]; then
+    echo "Required TLS file is not readable by uid $(id -u): $tls_file" >&2
+    exit 1
+  fi
+done
+
 sed -e "s/@@JC_ORG_ID@@/${JC_ORG_ID}/g" \
     -e "s/@@JC_CACHE_READER_UID@@/${JC_CACHE_READER_UID}/g" \
     -e "s/@@ALLOWED_CLIENT_IP@@/${ALLOWED_CLIENT_IP}/g" \
+    -e "s/@@SLAPD_LOGLEVEL@@/${SLAPD_LOGLEVEL}/g" \
     /etc/openldap/slapd.conf.template > /run/openldap/slapd.conf
 chmod 600 /run/openldap/slapd.conf
 
 # SLAPD_LOGLEVEL: 'stats' (default) logs each search for pcache template
 # tuning; switch to 'none' once tuned. No rebuild needed for either.
-exec slapd -d "${SLAPD_LOGLEVEL:-stats}" -f /run/openldap/slapd.conf -h "ldap:/// ldaps:///"
+exec slapd -d "$SLAPD_LOGLEVEL" -f /run/openldap/slapd.conf -h "ldap:/// ldaps:///"
