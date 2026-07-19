@@ -93,6 +93,18 @@ The config ships with the shapes QTS/Samba typically sends, but verify:
 4. Restart, re-test, then set `SLAPD_LOGLEVEL=none` in `.env` and
    `docker compose up -d` — no rebuild needed.
 
+### Log levels
+
+`SLAPD_LOGLEVEL` is rendered into `slapd.conf` and also controls slapd's
+foreground stderr logging. The entrypoint accepts exactly:
+
+- `stats` (default): log connections, LDAP operations, search filters, and
+  results. Use this while tuning cache templates or diagnosing requests.
+- `none`: emit only unavoidable/high-priority messages. Use this for quiet
+  production operation after tuning.
+
+Any other value is rejected at startup to catch configuration mistakes.
+
 ## Authentication
 
 Authenticated clients are handled by pass-through: their own bind is
