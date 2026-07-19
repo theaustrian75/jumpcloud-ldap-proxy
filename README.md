@@ -118,8 +118,9 @@ timestamps. `TZ` selects the IANA timezone and defaults to
 includes Alpine's timezone database, and startup rejects unknown or malformed
 timezone names.
 
-The date in slapd's startup version banner is the OpenLDAP package build time,
-not a log timestamp, and is unaffected by `TZ`.
+The initial OpenLDAP version banner is emitted before logfile configuration is
+active, so that one line retains its hexadecimal prefix. Its parenthesized date
+is the package build time, not a log timestamp, and is unaffected by `TZ`.
 
 ## Authentication
 
