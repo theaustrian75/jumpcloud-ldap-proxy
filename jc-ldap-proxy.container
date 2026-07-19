@@ -9,6 +9,10 @@ Wants=network-online.target
 # Replace with an immutable release tag or manifest digest before installing.
 Image=ghcr.io/theaustrian75/jumpcloud-ldap-proxy@sha256:REPLACE_WITH_MANIFEST_DIGEST
 ContainerName=jc-ldap-proxy
+# QNAP httpdusr:everyone defaults. Quadlet does not interpolate .env values;
+# change User, Group, and both Tmpfs uid/gid options together if needed.
+User=99
+Group=100
 Environment=JC_ORG_ID=CHANGE_ME
 # UID of the JumpCloud account configured as QTS's LDAP bind user
 Environment=JC_CACHE_READER_UID=CHANGE_ME
@@ -23,8 +27,8 @@ Volume=/srv/jc-ldap-proxy/certs:/certs:ro,Z
 # Runtime files and cached NTLM hashes live on tmpfs and never touch disk.
 # Cost: cache starts cold after each restart (first lookups pay one WAN
 # round-trip again).
-Tmpfs=/run/openldap:rw,size=16m,uid=100,gid=101,mode=0700
-Tmpfs=/var/lib/ldap/pcache:rw,size=256m,uid=100,gid=101,mode=0700
+Tmpfs=/run/openldap:rw,size=16m,uid=99,gid=100,mode=0700
+Tmpfs=/var/lib/ldap/pcache:rw,size=256m,uid=99,gid=100,mode=0700
 ReadOnly=true
 NoNewPrivileges=true
 DropCapability=all

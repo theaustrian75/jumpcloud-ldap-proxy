@@ -3,6 +3,9 @@
 # against it (cache hit ratio, cached searches, wrong-password rejection).
 FROM alpine:3.22
 
+ARG LDAP_PROXY_UID=99
+ARG LDAP_PROXY_GID=100
+
 RUN apk add --no-cache \
         openldap \
         openldap-back-ldap \
@@ -13,7 +16,7 @@ RUN apk add --no-cache \
     # Upstream LDAPS validation: JumpCloud uses a public CA
     printf 'TLS_CACERT /etc/ssl/certs/ca-certificates.crt\nTLS_REQCERT demand\n' >> /etc/openldap/ldap.conf && \
     mkdir -p /var/lib/ldap/pcache /run/openldap /certs && \
-    chown -R ldap:ldap /var/lib/ldap /run/openldap
+    chown -R "${LDAP_PROXY_UID}:${LDAP_PROXY_GID}" /var/lib/ldap /run/openldap
 
 COPY conf/samba.schema        /etc/openldap/schema/samba.schema
 COPY conf/jumpcloud.schema    /etc/openldap/schema/jumpcloud.schema
@@ -22,7 +25,7 @@ COPY entrypoint.sh             /entrypoint.sh
 # Build-time syntax check using the same substitutions as the entrypoint.
 # chmod: never trust the exec bit to survive transport of the source file.
 RUN chmod 755 /entrypoint.sh && \
-    chown ldap:ldap /etc/openldap/slapd.conf.template && chmod 600 /etc/openldap/slapd.conf.template && \
+    chmod 644 /etc/openldap/slapd.conf.template && \
     sed -e 's/@@JC_ORG_ID@@/buildcheck/g' \
         -e 's/@@JC_CACHE_READER_UID@@/cache-reader/g' \
         -e 's/@@ALLOWED_CLIENT_IP@@/127.0.0.1/g' \
@@ -39,7 +42,8 @@ EXPOSE 389 636
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD env LDAPTLS_REQCERT=never ldapsearch -x -H ldaps://127.0.0.1 -s base -b "" namingContexts >/dev/null || exit 1
 
-USER ldap
+# QNAP's httpdusr:everyone identity. Compose may override this numerically.
+USER ${LDAP_PROXY_UID}:${LDAP_PROXY_GID}
 # entrypoint renders /run/openldap/slapd.conf from the template using
 # JC_ORG_ID and JC_CACHE_READER_UID, then starts slapd with SLAPD_LOGLEVEL.
 ENTRYPOINT ["/entrypoint.sh"]

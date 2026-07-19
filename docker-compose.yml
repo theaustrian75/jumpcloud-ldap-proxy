@@ -23,6 +23,9 @@ services:
     #  context: .
     #  dockerfile: Dockerfile.ldap-proxy
     container_name: jc-ldap-proxy
+    # QNAP's httpdusr:everyone is 99:100. Override both values in .env when
+    # the certificate files or host policy use a different numeric identity.
+    user: "${LDAP_PROXY_UID:-99}:${LDAP_PROXY_GID:-100}"
     environment:
       # Interpolated from the .env file next to this compose file
       JC_ORG_ID: ${JC_ORG_ID:?Set JC_ORG_ID in .env}
@@ -58,10 +61,9 @@ services:
       - net-ldap-proxy
     tmpfs:
       # The root filesystem is read-only. Runtime config/PID files and cached
-      # hashes live on size-limited tmpfs mounts owned by the image's ldap user
-      # (uid 100, gid 101).
-      - /run/openldap:rw,size=16m,uid=100,gid=101,mode=0700
-      - /var/lib/ldap/pcache:rw,size=256m,uid=100,gid=101,mode=0700
+      # hashes live on size-limited tmpfs mounts owned by the configured user.
+      - /run/openldap:rw,size=16m,uid=${LDAP_PROXY_UID:-99},gid=${LDAP_PROXY_GID:-100},mode=0700
+      - /var/lib/ldap/pcache:rw,size=256m,uid=${LDAP_PROXY_UID:-99},gid=${LDAP_PROXY_GID:-100},mode=0700
 
 networks:
   net-ldap-proxy:

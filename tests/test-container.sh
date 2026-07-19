@@ -22,6 +22,13 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
 chmod 755 "$TMP_ROOT" "$CERT_DIR"
 chmod 644 "$CERT_DIR/proxy.crt" "$CERT_DIR/proxy.key"
 
+default_identity=$(docker run --rm --entrypoint /bin/sh "$IMAGE" \
+  -c 'printf "%s:%s" "$(id -u)" "$(id -g)"')
+if [ "$default_identity" != "99:100" ]; then
+  echo "Expected default container identity 99:100, got $default_identity" >&2
+  exit 1
+fi
+
 assert_failure() {
   expected=$1
   shift
@@ -63,13 +70,16 @@ docker run --rm --entrypoint /bin/sh \
   "$IMAGE" /tests/test-acl.sh
 
 # Exercise the same read-only/capability/tmpfs constraints used in production.
+RUNTIME_UID=12345
+RUNTIME_GID=12346
 docker run -d --name "$CONTAINER" \
+  --user "$RUNTIME_UID:$RUNTIME_GID" \
   --read-only \
   --security-opt no-new-privileges:true \
   --cap-drop ALL --cap-add NET_BIND_SERVICE \
   --pids-limit 128 --memory 512m \
-  --tmpfs /run/openldap:rw,size=16m,uid=100,gid=101,mode=0700 \
-  --tmpfs /var/lib/ldap/pcache:rw,size=256m,uid=100,gid=101,mode=0700 \
+  --tmpfs "/run/openldap:rw,size=16m,uid=$RUNTIME_UID,gid=$RUNTIME_GID,mode=0700" \
+  --tmpfs "/var/lib/ldap/pcache:rw,size=256m,uid=$RUNTIME_UID,gid=$RUNTIME_GID,mode=0700" \
   -v "$CERT_DIR:/certs:ro" \
   -e JC_ORG_ID=testorg -e JC_CACHE_READER_UID=qts-reader \
   -e SLAPD_LOGLEVEL=none \
