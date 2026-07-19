@@ -39,10 +39,18 @@ jobs:
           LDAP_PROXY_GID: "12346"
           JC_ORG_ID: testorg
           JC_CACHE_READER_UID: qts-reader
+          PCACHE_POSITIVE_TTL: "901"
+          PCACHE_NEGATIVE_TTL: "121"
+          PCACHE_ENUM_POSITIVE_TTL: "301"
+          PCACHE_ENUM_NEGATIVE_TTL: "61"
         run: |
           docker compose config --format json > /tmp/compose-config.json
           jq -e '
             .services["jc-ldap-proxy"].container_name == "jc-ldap-proxy-env-test"
+            and .services["jc-ldap-proxy"].environment.PCACHE_POSITIVE_TTL == "901"
+            and .services["jc-ldap-proxy"].environment.PCACHE_NEGATIVE_TTL == "121"
+            and .services["jc-ldap-proxy"].environment.PCACHE_ENUM_POSITIVE_TTL == "301"
+            and .services["jc-ldap-proxy"].environment.PCACHE_ENUM_NEGATIVE_TTL == "61"
             and any(
               .services["jc-ldap-proxy"].volumes[];
               .source == "/tmp/jc-ldap-proxy-cert-test"

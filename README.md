@@ -159,9 +159,9 @@ Expected auth semantics (re-test after changing `JC_CACHE_READER_UID`):
 - LDAP binds always go upstream, so JumpCloud password changes and account
   disables affect new LDAP binds immediately.
 - Samba validates users from hash searches, and those results can remain in
-  pcache for the matching template's positive TTL (900 seconds for user
-  lookups). An old SMB password can therefore remain usable until that cached
-  hash expires even while JumpCloud is reachable.
+  pcache for `PCACHE_POSITIVE_TTL` (900 seconds by default). An old SMB
+  password can therefore remain usable until that cached hash expires even
+  while JumpCloud is reachable.
 - While JumpCloud is unreachable, new LDAP binds fail (binds are never
   answered from cache — a cached bind leaves the proxy without upstream
   credentials and breaks later operations). Already-bound connections keep
@@ -218,10 +218,13 @@ the host firewall.
 
 ## Knobs and trade-offs
 
-- Positive TTL 900s / negative 120s (`pcacheTemplate` cols 3-4): how stale a
-  lookup may be. A user disabled in JumpCloud can still resolve for up to
-  the positive TTL; cached Samba hashes can retain the same authentication
-  window.
+- `PCACHE_POSITIVE_TTL` / `PCACHE_NEGATIVE_TTL` default to 900s / 120s for
+  standard lookups. `PCACHE_ENUM_POSITIVE_TTL` /
+  `PCACHE_ENUM_NEGATIVE_TTL` default to 300s / 60s for full directory
+  enumerations. All four must be positive integer seconds.
+- Positive TTLs control how stale a lookup may be. A user disabled in
+  JumpCloud can still resolve for up to the applicable positive TTL; cached
+  Samba hashes can retain the standard positive-TTL authentication window.
 - Cache is on tmpfs (see the Quadlet unit): no hashes at rest, cold cache
   after restart. Move to a volume only if you accept hashes on disk.
 - The proxy answers only the pinned QNAP bridge, localhost, and an optional
@@ -251,6 +254,6 @@ Residual upstream traffic is TTL refreshes on high-frequency shapes,
 first-touch misses, and one untemplatable shape (smbd alias expansion,
 (&(objectClass=)(sambaGroupType=)(|(sambaSIDList=)...)) — its OR-arity
 varies with SID count and pcache templates match exact filter structure).
-Raising the 900s template TTLs buys a few points of hit ratio at the cost
-of staler entries; not recommended. Re-measure with verify-proxy.sh after
-enabling SLAPD_LOGLEVEL=stats temporarily.
+Raising `PCACHE_POSITIVE_TTL` buys a few points of hit ratio at the cost of
+staler entries; not recommended. Re-measure with verify-proxy.sh after enabling
+SLAPD_LOGLEVEL=stats temporarily.

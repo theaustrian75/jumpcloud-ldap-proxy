@@ -17,6 +17,10 @@ Environment=JC_ORG_ID=CHANGE_ME
 # UID of the JumpCloud account configured as QTS's LDAP bind user
 Environment=JC_CACHE_READER_UID=CHANGE_ME
 Environment=SLAPD_LOGLEVEL=stats
+Environment=PCACHE_POSITIVE_TTL=900
+Environment=PCACHE_NEGATIVE_TTL=120
+Environment=PCACHE_ENUM_POSITIVE_TTL=300
+Environment=PCACHE_ENUM_NEGATIVE_TTL=60
 Environment=TZ=America/New_York
 # Uncomment if a remote client must reach this proxy (IP or ip%netmask)
 #Environment=ALLOWED_CLIENT_IP=192.168.1.50

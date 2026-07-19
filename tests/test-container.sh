@@ -60,6 +60,10 @@ assert_failure "TZ must be an installed IANA timezone" \
   docker run --rm \
   -e JC_ORG_ID=testorg -e JC_CACHE_READER_UID=qts-reader \
   -e 'TZ=America/New York' "$IMAGE"
+assert_failure "PCACHE_POSITIVE_TTL must be a positive integer number of seconds" \
+  docker run --rm \
+  -e JC_ORG_ID=testorg -e JC_CACHE_READER_UID=qts-reader \
+  -e PCACHE_POSITIVE_TTL=0 "$IMAGE"
 
 chmod 000 "$CERT_DIR/proxy.key"
 assert_failure "Required TLS file is not readable" \
@@ -86,6 +90,8 @@ docker run -d --name "$CONTAINER" \
   --tmpfs "/var/lib/ldap/pcache:rw,size=256m,uid=$RUNTIME_UID,gid=$RUNTIME_GID,mode=0700" \
   -v "$CERT_DIR:/certs:ro" \
   -e JC_ORG_ID=testorg -e JC_CACHE_READER_UID=qts-reader \
+  -e PCACHE_POSITIVE_TTL=901 -e PCACHE_NEGATIVE_TTL=121 \
+  -e PCACHE_ENUM_POSITIVE_TTL=301 -e PCACHE_ENUM_NEGATIVE_TTL=61 \
   -e SLAPD_LOGLEVEL=none -e TZ=UTC \
   "$IMAGE" >/dev/null
 
@@ -96,6 +102,10 @@ while [ "$attempt" -lt 30 ]; do
     "$CONTAINER")
   case "$status" in
     healthy)
+      docker exec "$CONTAINER" grep -Fq \
+        'pcacheTemplate  (uid=) 0 901 121' /run/openldap/slapd.conf
+      docker exec "$CONTAINER" grep -Fq \
+        'pcacheTemplate  (objectClass=*) 0 301 61' /run/openldap/slapd.conf
       logs=$(docker logs "$CONTAINER" 2>&1)
       if printf '%s\n' "$logs" | grep -v 'OpenLDAP: slapd' | \
         grep -Eq '^[[:xdigit:]]{8}\.[[:xdigit:]]{8}'; then
