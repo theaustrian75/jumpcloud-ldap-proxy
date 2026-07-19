@@ -21,19 +21,22 @@ Validated behavior (slapd 2.6.8 on Alpine 3.22 (musl) and 2.6.10 on Ubuntu 24.04
    UID of the JumpCloud account configured as QTS's LDAP bind user.
    `LDAP_PROXY_UID` and `LDAP_PROXY_GID` select the numeric process identity
    and tmpfs ownership; they default to QNAP's `httpdusr:everyone` (`99:100`).
+   `LDAP_PROXY_CONTAINER_NAME` controls the Compose container name, and
+   `LDAP_PROXY_CERT_DIR` points to the host certificate folder.
    Only that exact bind identity may read cached password/hash attributes.
    The entrypoint renders slapd.conf from `conf/slapd.conf.template` and
    refuses to start without both values. If the proxy will ever serve a
    client on another host, set `ALLOWED_CLIENT_IP` in `.env` (single IPv4
    or ip%netmask form); unset, it defaults to a harmless loopback duplicate.
    All substituted values are validated at startup.
-2. Put a lab-CA-issued cert/key at
-   `/share/Container/jc-ldap-proxy/certs/proxy.{crt,key}` for Compose, or
-   `/srv/jc-ldap-proxy/certs/proxy.{crt,key}` for Quadlet. The SAN must match
-   whatever name/IP you give the QNAP. Make both files readable by the
-   configured numeric identity (`99:100` by default, or `chmod 640` plus
-   ownership via `podman unshare`). Startup reports a direct
-   missing/unreadable-file error if the mount or permissions are wrong.
+2. Put a lab-CA-issued `proxy.crt` and `proxy.key` in
+   `LDAP_PROXY_CERT_DIR` (default:
+   `/share/Container/jc-ldap-proxy/certs`). Quadlet uses the static host path
+   in its `Volume=` line instead. The SAN must match whatever name/IP you give
+   the QNAP. Make both files readable by the configured numeric identity
+   (`99:100` by default, or `chmod 640` plus ownership via `podman unshare`).
+   Startup reports a direct missing/unreadable-file error if the mount or
+   permissions are wrong.
 3. GitHub Actions builds `linux/amd64` and `linux/arm64` images on native
    runners, publishes them to
    `ghcr.io/theaustrian75/jumpcloud-ldap-proxy`, and creates a multi-arch

@@ -15,7 +15,7 @@
 #   5. upstream-only  — filter shapes of the SLOW searches specifically;
 #                       this is the actual tuning worklist
 
-CONTAINER="${1:-jc-ldap-proxy}"
+CONTAINER="${1:-${LDAP_PROXY_CONTAINER_NAME:-jc-ldap-proxy}}"
 
 # Prefer an explicitly selected runtime, otherwise use whichever supported
 # container CLI is installed. This keeps the script usable for both the

@@ -22,7 +22,7 @@ services:
     #build:
     #  context: .
     #  dockerfile: Dockerfile.ldap-proxy
-    container_name: jc-ldap-proxy
+    container_name: ${LDAP_PROXY_CONTAINER_NAME:-jc-ldap-proxy}
     # QNAP's httpdusr:everyone is 99:100. Override both values in .env when
     # the certificate files or host policy use a different numeric identity.
     user: "${LDAP_PROXY_UID:-99}:${LDAP_PROXY_GID:-100}"
@@ -58,7 +58,7 @@ services:
       # Server cert/key for TLS (LDAPS on 636, STARTTLS on 389). The QTS
       # panel validates the cert, so the SAN must cover what it dials
       # (IP:127.0.0.1); the nss path runs with tls_checkpeer no.
-      - /share/Container/jc-ldap-proxy/certs:/certs:ro
+      - "${LDAP_PROXY_CERT_DIR:-/share/Container/jc-ldap-proxy/certs}:/certs:ro"
     networks:
       - net-ldap-proxy
     tmpfs:

@@ -33,11 +33,23 @@ jobs:
       - name: Validate Compose configuration
         env:
           LDAP_PROXY_IMAGE: jc-ldap-proxy:test
+          LDAP_PROXY_CONTAINER_NAME: jc-ldap-proxy-env-test
+          LDAP_PROXY_CERT_DIR: /tmp/jc-ldap-proxy-cert-test
           LDAP_PROXY_UID: "12345"
           LDAP_PROXY_GID: "12346"
           JC_ORG_ID: testorg
           JC_CACHE_READER_UID: qts-reader
-        run: docker compose config --quiet
+        run: |
+          docker compose config --format json > /tmp/compose-config.json
+          jq -e '
+            .services["jc-ldap-proxy"].container_name == "jc-ldap-proxy-env-test"
+            and any(
+              .services["jc-ldap-proxy"].volumes[];
+              .source == "/tmp/jc-ldap-proxy-cert-test"
+              and .target == "/certs"
+              and .read_only == true
+            )
+          ' /tmp/compose-config.json
 
       - name: Build image
         run: docker build --tag jc-ldap-proxy:test --file Dockerfile.ldap-proxy .
