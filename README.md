@@ -109,6 +109,19 @@ foreground stderr logging. The entrypoint accepts exactly:
 
 Any other value is rejected at startup to catch configuration mistakes.
 
+### Log timestamps and timezone
+
+slapd writes foreground logs to stderr using human-readable
+`syslog-localtime` timestamps instead of its default hexadecimal debug
+timestamps. `TZ` selects the IANA timezone and defaults to
+`America/New_York`; for example, set `TZ=UTC` for UTC output. The image
+includes Alpine's timezone database, and startup rejects unknown or malformed
+timezone names.
+
+The initial OpenLDAP version banner is emitted before logfile configuration is
+active, so that one line retains its hexadecimal prefix. Its parenthesized date
+is the package build time, not a log timestamp, and is unaffected by `TZ`.
+
 ## Authentication
 
 Authenticated clients are handled by pass-through: their own bind is

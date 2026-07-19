@@ -22,10 +22,10 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
 chmod 755 "$TMP_ROOT" "$CERT_DIR"
 chmod 644 "$CERT_DIR/proxy.crt" "$CERT_DIR/proxy.key"
 
-default_identity=$(docker run --rm --entrypoint /bin/sh "$IMAGE" \
-  -c 'printf "%s:%s" "$(id -u)" "$(id -g)"')
-if [ "$default_identity" != "99:100" ]; then
-  echo "Expected default container identity 99:100, got $default_identity" >&2
+default_settings=$(docker run --rm --entrypoint /bin/sh "$IMAGE" \
+  -c 'printf "%s:%s %s" "$(id -u)" "$(id -g)" "$TZ"')
+if [ "$default_settings" != "99:100 America/New_York" ]; then
+  echo "Expected defaults '99:100 America/New_York', got '$default_settings'" >&2
   exit 1
 fi
 
@@ -56,6 +56,10 @@ assert_failure "SLAPD_LOGLEVEL must be 'stats' or 'none'" \
   docker run --rm \
   -e JC_ORG_ID=testorg -e JC_CACHE_READER_UID=qts-reader \
   -e SLAPD_LOGLEVEL=verbose "$IMAGE"
+assert_failure "TZ must be an installed IANA timezone" \
+  docker run --rm \
+  -e JC_ORG_ID=testorg -e JC_CACHE_READER_UID=qts-reader \
+  -e 'TZ=America/New York' "$IMAGE"
 
 chmod 000 "$CERT_DIR/proxy.key"
 assert_failure "Required TLS file is not readable" \
@@ -82,7 +86,7 @@ docker run -d --name "$CONTAINER" \
   --tmpfs "/var/lib/ldap/pcache:rw,size=256m,uid=$RUNTIME_UID,gid=$RUNTIME_GID,mode=0700" \
   -v "$CERT_DIR:/certs:ro" \
   -e JC_ORG_ID=testorg -e JC_CACHE_READER_UID=qts-reader \
-  -e SLAPD_LOGLEVEL=none \
+  -e SLAPD_LOGLEVEL=none -e TZ=UTC \
   "$IMAGE" >/dev/null
 
 attempt=0
@@ -92,6 +96,17 @@ while [ "$attempt" -lt 30 ]; do
     "$CONTAINER")
   case "$status" in
     healthy)
+      logs=$(docker logs "$CONTAINER" 2>&1)
+      if printf '%s\n' "$logs" | grep -v 'OpenLDAP: slapd' | \
+        grep -Eq '^[[:xdigit:]]{8}\.[[:xdigit:]]{8}'; then
+        printf 'Found hexadecimal timestamp after the version banner:\n%s\n' "$logs" >&2
+        exit 1
+      fi
+      if ! printf '%s\n' "$logs" | \
+        grep -Eq '^[A-Z][a-z]{2} [ 0-9][0-9] [0-9]{2}:[0-9]{2}:[0-9]{2} .*slapd starting'; then
+        printf 'Did not find a syslog-localtime slapd timestamp:\n%s\n' "$logs" >&2
+        exit 1
+      fi
       echo "Hardened container smoke test passed"
       exit 0
       ;;
