@@ -1,14 +1,14 @@
 # JumpCloud LDAP caching proxy (OpenLDAP back-ldap + pcache)
-# Alpine 3.22 ships slapd 2.6.8 — this config was functionally validated
-# against it (cache hit ratio, cached searches, wrong-password rejection).
-FROM alpine:3.22
+# Tracks Alpine 3.24. The image build runs slaptest against the rendered config.
+FROM alpine:3.24
 
 ARG LDAP_PROXY_UID=99
 ARG LDAP_PROXY_GID=100
 
 ENV TZ=America/New_York
 
-RUN apk add --no-cache \
+RUN apk upgrade --no-cache \
+    && apk add --no-cache \
         openldap \
         openldap-back-ldap \
         openldap-back-mdb \

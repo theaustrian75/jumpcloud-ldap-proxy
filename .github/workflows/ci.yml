@@ -6,6 +6,12 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Extra image tag to publish, such as v1.2
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -28,7 +34,7 @@ jobs:
           sudo apt-get install --yes shellcheck
 
       - name: Check shell scripts
-        run: shellcheck entrypoint.sh verify-proxy.sh tests/*.sh
+        run: shellcheck entrypoint.sh verify-proxy.sh tests/*.sh scripts/check-alpine-updates.sh
 
       - name: Validate Compose configuration
         env:
@@ -101,6 +107,7 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
             type=sha
+            type=raw,value=${{ github.event.inputs.image_tag || 'none' }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.image_tag != '' }}
             type=raw,value=latest,enable={{is_default_branch}}
           flavor: suffix=-${{ matrix.arch }}
           labels: |
@@ -145,6 +152,7 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
             type=sha
+            type=raw,value=${{ github.event.inputs.image_tag || 'none' }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.image_tag != '' }}
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Create and push multi-arch manifest
