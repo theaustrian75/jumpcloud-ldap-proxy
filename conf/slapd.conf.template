@@ -40,9 +40,9 @@ TLSCertificateFile      /certs/proxy.crt
 TLSCertificateKeyFile   /certs/proxy.key
 TLSProtocolMin          3.3
 
-# Anonymous access is allowed ONLY for rootDSE base reads from loopback
-# (container healthcheck). The JumpCloud tree itself requires an
-# authenticated bind — see 'require authc' in the database section.
+# Anonymous rootDSE base reads from loopback power the container healthcheck.
+# The JumpCloud tree deliberately does NOT use 'require authc': QTS depends
+# on anonymous probes being passed through to JumpCloud (see below).
 access to dn.base=""
         by peername.ip=127.0.0.1 read
         by * none
@@ -107,9 +107,11 @@ access to *
 #-----------------------------------------------------------------------
 # Query cache: answers repeat searches from a local MDB store.
 # pcache <db-type> <max-cached-entries> <numattrsets> <entries-per-query-limit> <consistency-check-secs>
+# pcache keeps answering expired queries until the consistency check removes
+# them, so a short check period keeps effective staleness close to the TTL.
 #-----------------------------------------------------------------------
 overlay         pcache
-pcache          mdb 20000 1 500 120
+pcache          mdb 20000 1 500 30
 
 # Attribute set 0: explicit superset of every attribute in the directory.
 # Explicit (not '*') because pcache rewrites upstream fetches to retrieve

@@ -8,7 +8,7 @@ CERT_DIR="$TMP_ROOT/certs"
 CONTAINER="jc-ldap-proxy-test-$$"
 
 # Invoked through trap.
-# shellcheck disable=SC2317
+# shellcheck disable=SC2317,SC2329
 cleanup() {
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
   rm -rf "$TMP_ROOT"
@@ -64,6 +64,18 @@ assert_failure "PCACHE_POSITIVE_TTL must be a positive integer number of seconds
   docker run --rm \
   -e JC_ORG_ID=testorg -e JC_CACHE_READER_UID=qts-reader \
   -e PCACHE_POSITIVE_TTL=0 "$IMAGE"
+assert_failure "ALLOWED_CLIENT_IP must be an IPv4 address or ip%netmask" \
+  docker run --rm \
+  -e JC_ORG_ID=testorg -e JC_CACHE_READER_UID=qts-reader \
+  -e ALLOWED_CLIENT_IP=... "$IMAGE"
+assert_failure "ALLOWED_CLIENT_IP must be an IPv4 address or ip%netmask" \
+  docker run --rm \
+  -e JC_ORG_ID=testorg -e JC_CACHE_READER_UID=qts-reader \
+  -e ALLOWED_CLIENT_IP=9%9 "$IMAGE"
+assert_failure "ALLOWED_CLIENT_IP must be an IPv4 address or ip%netmask" \
+  docker run --rm \
+  -e JC_ORG_ID=testorg -e JC_CACHE_READER_UID=qts-reader \
+  -e ALLOWED_CLIENT_IP=192.168.1.300 "$IMAGE"
 
 chmod 000 "$CERT_DIR/proxy.key"
 assert_failure "Required TLS file is not readable" \
@@ -71,6 +83,42 @@ assert_failure "Required TLS file is not readable" \
   -e JC_ORG_ID=testorg -e JC_CACHE_READER_UID=qts-reader \
   -v "$CERT_DIR:/certs:ro" "$IMAGE"
 chmod 644 "$CERT_DIR/proxy.key"
+
+printf 'not-a-certificate\n' > "$CERT_DIR/proxy.crt"
+assert_failure "Required TLS file is not a valid X.509 certificate" \
+  docker run --rm \
+  -e JC_ORG_ID=testorg -e JC_CACHE_READER_UID=qts-reader \
+  -v "$CERT_DIR:/certs:ro" "$IMAGE"
+
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+  -subj "/CN=localhost" -addext "subjectAltName=IP:127.0.0.1" \
+  -keyout "$CERT_DIR/proxy.key" -out "$CERT_DIR/other.crt" >/dev/null 2>&1
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+  -subj "/CN=mismatch" -addext "subjectAltName=IP:127.0.0.1" \
+  -keyout "$CERT_DIR/other.key" -out "$CERT_DIR/proxy.crt" >/dev/null 2>&1
+chmod 644 "$CERT_DIR/proxy.crt" "$CERT_DIR/proxy.key"
+assert_failure "TLS certificate and private key do not match" \
+  docker run --rm \
+  -e JC_ORG_ID=testorg -e JC_CACHE_READER_UID=qts-reader \
+  -v "$CERT_DIR:/certs:ro" "$IMAGE"
+
+# -not_before/-not_after need OpenSSL 3.4+; the CI host may be older, so use
+# the image's OpenSSL.
+docker run --rm --user "$(id -u):$(id -g)" --entrypoint openssl \
+  -v "$CERT_DIR:/out" "$IMAGE" req -x509 -newkey rsa:2048 -nodes \
+  -subj "/CN=localhost" -addext "subjectAltName=IP:127.0.0.1" \
+  -keyout /out/proxy.key -out /out/proxy.crt \
+  -not_before 20200101000000Z -not_after 20200102000000Z >/dev/null 2>&1
+chmod 644 "$CERT_DIR/proxy.crt" "$CERT_DIR/proxy.key"
+assert_failure "TLS certificate has expired" \
+  docker run --rm \
+  -e JC_ORG_ID=testorg -e JC_CACHE_READER_UID=qts-reader \
+  -v "$CERT_DIR:/certs:ro" "$IMAGE"
+
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+  -subj "/CN=localhost" -addext "subjectAltName=IP:127.0.0.1" \
+  -keyout "$CERT_DIR/proxy.key" -out "$CERT_DIR/proxy.crt" >/dev/null 2>&1
+chmod 644 "$CERT_DIR/proxy.crt" "$CERT_DIR/proxy.key"
 
 docker run --rm --entrypoint /bin/sh \
   -v "$CERT_DIR:/certs:ro" \

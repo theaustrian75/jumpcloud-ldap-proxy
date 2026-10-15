@@ -6,8 +6,8 @@ After=network-online.target
 Wants=network-online.target
 
 [Container]
-# Replace with an immutable release tag or manifest digest before installing.
-Image=ghcr.io/theaustrian75/jumpcloud-ldap-proxy@sha256:REPLACE_WITH_MANIFEST_DIGEST
+# Immutable multi-arch digest for release v1.2. Refresh after each release.
+Image=ghcr.io/theaustrian75/jumpcloud-ldap-proxy@sha256:46b5344d4308a1b13b54e7873f4f7215ac3bacdcdd4e524654e4d693483820fd
 ContainerName=jc-ldap-proxy
 # QNAP httpdusr:everyone defaults. Quadlet does not interpolate .env values;
 # change User, Group, and both Tmpfs uid/gid options together if needed.
@@ -17,6 +17,7 @@ Environment=JC_ORG_ID=CHANGE_ME
 # UID of the JumpCloud account configured as QTS's LDAP bind user
 Environment=JC_CACHE_READER_UID=CHANGE_ME
 Environment=SLAPD_LOGLEVEL=stats
+# Samba hash searches can stay cached for PCACHE_POSITIVE_TTL seconds.
 Environment=PCACHE_POSITIVE_TTL=900
 Environment=PCACHE_NEGATIVE_TTL=120
 Environment=PCACHE_ENUM_POSITIVE_TTL=300

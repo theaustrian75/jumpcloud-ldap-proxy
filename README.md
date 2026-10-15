@@ -8,7 +8,7 @@ per-user auth rides on cached hash searches, so it survives brief upstream
 outages on established connections; LDAP binds themselves always go
 upstream.
 
-Validated behavior (slapd 2.6.8 on Alpine 3.22 (musl) and 2.6.10 on Ubuntu 24.04):
+Validated behavior (OpenLDAP 2.6 on Alpine 3.24 (musl) and 2.6.10 on Ubuntu 24.04):
 - 5 identical queries to the proxy -> exactly 1 reached upstream
 - with upstream unreachable, already-bound connections can continue using
   cached searches; new binds fail because binds are never cached
@@ -44,10 +44,11 @@ Validated behavior (slapd 2.6.8 on Alpine 3.22 (musl) and 2.6.10 on Ubuntu 24.04
    tag additionally publishes that release tag. Pull requests build both
    architectures without publishing.
 
-   Use a release/commit tag to discover the resulting manifest digest, then
-   put the immutable `ghcr.io/...@sha256:...` reference in `.env` and replace
-   the `Image=` placeholder in the Quadlet unit. If the GHCR package is
-   private, authenticate the QNAP once with a token that has `read:packages`:
+   `.env.example` and the Quadlet unit ship pinned to the current release
+   digest (`v1.2`). After each new release, refresh that
+   `ghcr.io/...@sha256:...` reference in `.env` and `Image=` before
+   deploying. If the GHCR package is private, authenticate the QNAP once
+   with a token that has `read:packages`:
 
        echo "$GHCR_TOKEN" | docker login ghcr.io -u theaustrian75 --password-stdin
        docker compose up -d
@@ -159,9 +160,11 @@ Expected auth semantics (re-test after changing `JC_CACHE_READER_UID`):
 - LDAP binds always go upstream, so JumpCloud password changes and account
   disables affect new LDAP binds immediately.
 - Samba validates users from hash searches, and those results can remain in
-  pcache for `PCACHE_POSITIVE_TTL` (900 seconds by default). An old SMB
-  password can therefore remain usable until that cached hash expires even
-  while JumpCloud is reachable.
+  pcache for `PCACHE_POSITIVE_TTL` (900 seconds by default) plus up to one
+  30-second consistency-check cycle. An old SMB password can therefore remain
+  usable until that cached hash expires even while JumpCloud is reachable.
+  If a password change is ignored for much longer, restarting the container
+  flushes the tmpfs cache.
 - While JumpCloud is unreachable, new LDAP binds fail (binds are never
   answered from cache — a cached bind leaves the proxy without upstream
   credentials and breaks later operations). Already-bound connections keep
@@ -195,11 +198,12 @@ the host firewall.
 
 ## Operational notes
 
-- Cert expiry is INVISIBLE to the healthcheck (it deliberately skips
-  verification on loopback). An expired proxy cert breaks QTS LDAP while
-  the container still reports healthy. Issue the loopback cert long-lived
-  (it never crosses a wire), and if QTS auth fails with a green container,
-  check cert dates first.
+- Startup validates that `/certs/proxy.{crt,key}` exist, are readable, are
+  a matching PEM key pair, and that the certificate is not expired. A
+  certificate that expires within 30 days logs a warning. The healthcheck
+  still skips peer verification on loopback, but it now fails once the
+  certificate has expired. Issue the loopback cert long-lived (it never
+  crosses a wire).
 - The runtime root filesystem is read-only, all capabilities except
   `NET_BIND_SERVICE` are dropped, privilege escalation is disabled, and
   memory/PID limits are applied. `/run/openldap` and the 256 MiB cache are
@@ -225,6 +229,10 @@ the host firewall.
 - Positive TTLs control how stale a lookup may be. A user disabled in
   JumpCloud can still resolve for up to the applicable positive TTL; cached
   Samba hashes can retain the standard positive-TTL authentication window.
+- pcache's time-to-refresh (TTR) option is deliberately not used. Refreshes
+  run as pcache's internal identity, which has no JumpCloud credentials, and
+  pcache extends the expiry of recently used queries before attempting the
+  refresh, so a failed refresh would keep stale entries indefinitely.
 - Cache is on tmpfs (see the Quadlet unit): no hashes at rest, cold cache
   after restart. Move to a volume only if you accept hashes on disk.
 - The proxy answers only the pinned QNAP bridge, localhost, and an optional

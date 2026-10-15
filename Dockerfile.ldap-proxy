@@ -15,6 +15,7 @@ RUN apk upgrade --no-cache \
         openldap-overlay-proxycache \
         openldap-clients \
         ca-certificates \
+        openssl \
         tzdata && \
     # Upstream LDAPS validation: JumpCloud uses a public CA
     printf 'TLS_CACERT /etc/ssl/certs/ca-certificates.crt\nTLS_REQCERT demand\n' >> /etc/openldap/ldap.conf && \
@@ -44,10 +45,13 @@ EXPOSE 389 636
 
 # Anonymous rootDSE base read from loopback — allowed by a dedicated ACL,
 # needs no credentials, and answers whether slapd is up and serving LDAPS.
-# Deliberately does NOT test upstream reachability: a dead WAN with a warm
-# cache is the proxy doing its job, not an unhealthy container.
+# Also fail when the server cert is already expired (REQCERT=never would
+# otherwise hide that). Deliberately does NOT test upstream reachability:
+# a dead WAN with a warm cache is the proxy doing its job, not unhealthy.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD env LDAPTLS_REQCERT=never ldapsearch -x -H ldaps://127.0.0.1 -s base -b "" namingContexts >/dev/null || exit 1
+    CMD openssl x509 -in /certs/proxy.crt -noout -checkend 0 >/dev/null \
+        && env LDAPTLS_REQCERT=never ldapsearch -x -H ldaps://127.0.0.1 \
+            -s base -b "" namingContexts >/dev/null || exit 1
 
 # QNAP's httpdusr:everyone identity. Compose may override this numerically.
 USER ${LDAP_PROXY_UID}:${LDAP_PROXY_GID}
