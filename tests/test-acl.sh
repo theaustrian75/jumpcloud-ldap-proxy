@@ -20,6 +20,7 @@ sed -e "s/@@JC_ORG_ID@@/$ORG_ID/g" \
     /etc/openldap/slapd.conf.template > "$CONFIG"
 
 grep -q '^loglevel[[:space:]]*none$' "$CONFIG"
+grep -Fq 'pcache          mdb 20000 1 500 30' "$CONFIG"
 grep -Fq 'pcacheTemplate  (uid=) 0 901 121' "$CONFIG"
 grep -Fq 'pcacheTemplate  (objectClass=*) 0 301 61' "$CONFIG"
 slaptest -f "$CONFIG" -u >/dev/null
@@ -29,20 +30,21 @@ assert_access() {
   identity=$2
   peer=$3
   attribute=$4
+  privilege=${5:-read}
 
   if [ "$identity" = anonymous ]; then
     output=$(slapacl -f "$CONFIG" -u \
       -o "peername=IP=$peer:12345" \
-      -b "$TARGET_DN" "$attribute/read" 2>&1)
+      -b "$TARGET_DN" "$attribute/$privilege" 2>&1)
   else
     output=$(slapacl -f "$CONFIG" -u -D "$identity" \
       -o "peername=IP=$peer:12345" \
-      -b "$TARGET_DN" "$attribute/read" 2>&1)
+      -b "$TARGET_DN" "$attribute/$privilege" 2>&1)
   fi
 
   if ! printf '%s\n' "$output" | grep -q ": $expected"; then
-    printf 'Expected %s for %s as %s from %s, got:\n%s\n' \
-      "$expected" "$attribute" "$identity" "$peer" "$output" >&2
+    printf 'Expected %s for %s/%s as %s from %s, got:\n%s\n' \
+      "$expected" "$attribute" "$privilege" "$identity" "$peer" "$output" >&2
     exit 1
   fi
 }
@@ -51,9 +53,17 @@ assert_access() {
 assert_access ALLOWED "$READER_DN" 127.0.0.1 userPassword
 assert_access ALLOWED "$READER_DN" 172.28.53.10 sambaNTPassword
 assert_access ALLOWED "$READER_DN" 192.0.2.10 userPassword
+assert_access ALLOWED "$READER_DN" 172.28.53.10 encNTPassword
 assert_access DENIED "$READER_DN" 172.20.0.10 userPassword
 assert_access DENIED "$OTHER_DN" 127.0.0.1 userPassword
+assert_access DENIED "$OTHER_DN" 172.28.53.10 sambaClearTextPassword
 assert_access DENIED anonymous 127.0.0.1 userPassword
+
+# Anonymous may authenticate (bind) from allowed sources, but not read hashes.
+assert_access ALLOWED anonymous 127.0.0.1 userPassword auth
+assert_access ALLOWED anonymous 172.28.53.10 userPassword auth
+assert_access ALLOWED anonymous 192.0.2.10 userPassword auth
+assert_access DENIED anonymous 172.20.0.10 userPassword auth
 
 # Preserve QTS anonymous reads of non-sensitive cached directory attributes.
 assert_access ALLOWED anonymous 127.0.0.1 cn

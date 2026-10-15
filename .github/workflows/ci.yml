@@ -53,15 +53,41 @@ jobs:
           docker compose config --format json > /tmp/compose-config.json
           jq -e '
             .services["jc-ldap-proxy"].container_name == "jc-ldap-proxy-env-test"
+            and .services["jc-ldap-proxy"].user == "12345:12346"
+            and .services["jc-ldap-proxy"].read_only == true
+            and (.services["jc-ldap-proxy"].cap_drop | index("ALL")) != null
+            and (.services["jc-ldap-proxy"].cap_add | index("NET_BIND_SERVICE")) != null
+            and (.services["jc-ldap-proxy"].security_opt | index("no-new-privileges:true")) != null
+            and .services["jc-ldap-proxy"].pids_limit == 128
+            and (
+              (.services["jc-ldap-proxy"].mem_limit | tostring) as $mem
+              | $mem == "536870912" or $mem == "512m"
+            )
             and .services["jc-ldap-proxy"].environment.PCACHE_POSITIVE_TTL == "901"
             and .services["jc-ldap-proxy"].environment.PCACHE_NEGATIVE_TTL == "121"
             and .services["jc-ldap-proxy"].environment.PCACHE_ENUM_POSITIVE_TTL == "301"
             and .services["jc-ldap-proxy"].environment.PCACHE_ENUM_NEGATIVE_TTL == "61"
             and any(
+              .services["jc-ldap-proxy"].ports[];
+              .host_ip == "127.0.0.1"
+              and (.published | tostring) == "636"
+              and .target == 636
+            )
+            and any(
+              .services["jc-ldap-proxy"].ports[];
+              .host_ip == "127.0.0.1"
+              and (.published | tostring) == "389"
+              and .target == 389
+            )
+            and any(
               .services["jc-ldap-proxy"].volumes[];
               .source == "/tmp/jc-ldap-proxy-cert-test"
               and .target == "/certs"
               and .read_only == true
+            )
+            and any(
+              (.networks["net-ldap-proxy"].ipam.config // [])[];
+              .subnet == "172.28.53.0/24"
             )
           ' /tmp/compose-config.json
 

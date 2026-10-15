@@ -30,11 +30,58 @@ if [ ! -f "/usr/share/zoneinfo/$TZ" ]; then
 fi
 export TZ
 
-# Optional extra allowed client (IP or ip%netmask). Default duplicates the
-# loopback entry, i.e. grants nothing new.
+# Optional extra allowed client (IPv4 or OpenLDAP ip%netmask). Default
+# duplicates the loopback entry, i.e. grants nothing new.
 ALLOWED_CLIENT_IP="${ALLOWED_CLIENT_IP:-127.0.0.1}"
+
+is_ipv4_octet() {
+  case "$1" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$1" -ge 0 ] && [ "$1" -le 255 ]
+}
+
+is_ipv4() {
+  ip=$1
+  case "$ip" in
+    *.*.*.*) ;;
+    *) return 1 ;;
+  esac
+  o1=${ip%%.*}; rest=${ip#*.}
+  o2=${rest%%.*}; rest=${rest#*.}
+  o3=${rest%%.*}; o4=${rest#*.}
+  case "$o4" in
+    *.*) return 1 ;;
+  esac
+  is_ipv4_octet "$o1" && is_ipv4_octet "$o2" && \
+    is_ipv4_octet "$o3" && is_ipv4_octet "$o4"
+}
+
 case "$ALLOWED_CLIENT_IP" in
-  *[!0-9.%]*|"") echo "ALLOWED_CLIENT_IP must be an IPv4 address or ip%netmask" >&2; exit 1 ;;
+  ""|*[!0-9.%]*)
+    echo "ALLOWED_CLIENT_IP must be an IPv4 address or ip%netmask" >&2
+    exit 1
+    ;;
+  *%*)
+    allowed_ip=${ALLOWED_CLIENT_IP%%\%*}
+    allowed_mask=${ALLOWED_CLIENT_IP#*%}
+    case "$allowed_mask" in
+      *%*)
+        echo "ALLOWED_CLIENT_IP must be an IPv4 address or ip%netmask" >&2
+        exit 1
+        ;;
+    esac
+    if ! is_ipv4 "$allowed_ip" || ! is_ipv4 "$allowed_mask"; then
+      echo "ALLOWED_CLIENT_IP must be an IPv4 address or ip%netmask" >&2
+      exit 1
+    fi
+    ;;
+  *)
+    if ! is_ipv4 "$ALLOWED_CLIENT_IP"; then
+      echo "ALLOWED_CLIENT_IP must be an IPv4 address or ip%netmask" >&2
+      exit 1
+    fi
+    ;;
 esac
 
 SLAPD_LOGLEVEL="${SLAPD_LOGLEVEL:-stats}"
@@ -78,6 +125,37 @@ for tls_file in /certs/proxy.crt /certs/proxy.key; do
     exit 1
   fi
 done
+
+if ! openssl x509 -in /certs/proxy.crt -noout >/dev/null 2>&1; then
+  echo "Required TLS file is not a valid X.509 certificate: /certs/proxy.crt" >&2
+  exit 1
+fi
+if ! openssl pkey -in /certs/proxy.key -noout >/dev/null 2>&1; then
+  echo "Required TLS file is not a valid private key: /certs/proxy.key" >&2
+  exit 1
+fi
+
+cert_pub=$(openssl x509 -in /certs/proxy.crt -noout -pubkey 2>/dev/null) || {
+  echo "Unable to read public key from /certs/proxy.crt" >&2
+  exit 1
+}
+key_pub=$(openssl pkey -in /certs/proxy.key -pubout 2>/dev/null) || {
+  echo "Unable to derive public key from /certs/proxy.key" >&2
+  exit 1
+}
+if [ "$cert_pub" != "$key_pub" ]; then
+  echo "TLS certificate and private key do not match: /certs/proxy.crt /certs/proxy.key" >&2
+  exit 1
+fi
+
+if ! openssl x509 -in /certs/proxy.crt -noout -checkend 0 >/dev/null 2>&1; then
+  echo "TLS certificate has expired: /certs/proxy.crt" >&2
+  exit 1
+fi
+# 30 days — warn early; expiry still fails the healthcheck once reached.
+if ! openssl x509 -in /certs/proxy.crt -noout -checkend 2592000 >/dev/null 2>&1; then
+  echo "WARNING: TLS certificate expires within 30 days: /certs/proxy.crt" >&2
+fi
 
 sed -e "s/@@JC_ORG_ID@@/${JC_ORG_ID}/g" \
     -e "s/@@JC_CACHE_READER_UID@@/${JC_CACHE_READER_UID}/g" \
