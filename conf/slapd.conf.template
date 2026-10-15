@@ -60,8 +60,15 @@ uri             "ldaps://ldap.jumpcloud.com:636"
 protocol-version 3
 rebind-as-user  yes
 chase-referrals no
-idle-timeout    300
 single-conn     no
+# Do not set idle-timeout or conn-ttl. rebind-as-user keeps the client
+# password on the upstream connection object. Those timers free that
+# object, so the next cache miss opens a new upstream session that still
+# knows the DN but has no password. slapd then logs
+# "cannot rebind without creds", returns err=52, and disconnects the
+# client. A remote close is different: ldap_back_retry keeps the saved
+# password and rebinds. Those retry lines are recovery, logged at
+# priority "any" even when loglevel is none.
 # Fail fast when JumpCloud is unreachable instead of blocking clients
 # (observed: 115s hanging binds during a DNS outage). network-timeout
 # bounds connect(); timeout bounds each proxied operation.
